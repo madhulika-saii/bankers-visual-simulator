@@ -241,5 +241,104 @@ class CriticalCalculationRegressionTests(unittest.TestCase):
         seq = [f"P{seq_c[i]}" for i in range(n)]
         self.assertEqual(seq, ["P1", "P3", "P4", "P0", "P2"])
 
+    def test_13_solid_allocation_vs_dotted_request_arrows(self):
+        """13. Visual distinction: Solid blue allocation arrows and dotted orange request arrows"""
+        total = [10, 5, 7]
+        alloc = [
+            [0, 1, 0],
+            [2, 0, 0],
+            [3, 0, 2],
+            [2, 1, 1],
+            [0, 0, 2]
+        ]
+        avail = [3, 3, 2]
+
+        # Scenario A: No pending request -> Only solid blue allocation edges, no request edges
+        svg_no_req = streamlit_app.generate_rag_svg(5, 3, alloc, total, avail, pending_request=None)
+        self.assertIn('marker id="allocArrow"', svg_no_req)
+        self.assertIn('stroke="#2563EB"', svg_no_req)
+        self.assertNotIn('class="rag-req-edge"', svg_no_req)
+
+        # Scenario B: Active pending request for P1 [1, 0, 2]
+        pending_req = {"proc": 1, "values": [1, 0, 2]}
+        svg_with_req = streamlit_app.generate_rag_svg(5, 3, alloc, total, avail, pending_request=pending_req)
+
+        # Both markers must be present
+        self.assertIn('marker id="allocArrow"', svg_with_req)
+        self.assertIn('marker id="reqArrow"', svg_with_req)
+
+        # Solid blue allocation edge present
+        self.assertIn('stroke="#2563EB"', svg_with_req)
+        # Dotted/dashed orange request edge present
+        self.assertIn('class="rag-req-edge"', svg_with_req)
+        self.assertIn('stroke="#EA580C"', svg_with_req)
+        self.assertIn('marker-end="url(#reqArrow)"', svg_with_req)
+        self.assertIn('1 (req)', svg_with_req)
+        self.assertIn('2 (req)', svg_with_req)
+
+        # Process P1 node should receive the active pending highlight (#EA580C)
+        self.assertIn('fill="#C2410C"', svg_with_req)
+
+    def test_14_request_lifecycle_and_rollback_integrity(self):
+        """14. Request lifecycle: Pending edge removed on grant, system preserved on rollback"""
+        alloc_c = self.Matrix()
+        need_c = self.Matrix()
+        avail_c = self.Vector()
+        req_c = self.Vector()
+
+        preset = self.PRESETS["5 Processes × 3 Resources (Default)"]
+        n, m = preset["processes"], preset["resources"]
+
+        for i in range(n):
+            for j in range(m):
+                alloc_c[i][j] = preset["allocation"][i][j]
+                need_c[i][j] = preset["maximum"][i][j] - preset["allocation"][i][j]
+
+        avail_c[0] = 3; avail_c[1] = 3; avail_c[2] = 2
+
+        # Safe request for P1 [1, 0, 2] -> Granted
+        req_c[0] = 1; req_c[1] = 0; req_c[2] = 2
+        granted = self.bankers_c.requestResources(1, n, m, req_c, alloc_c, need_c, avail_c)
+        self.assertEqual(granted, 1)
+        self.assertEqual(alloc_c[1][0], 3)
+        self.assertEqual(alloc_c[1][2], 2)
+        self.assertEqual(avail_c[0], 2)
+        self.assertEqual(avail_c[2], 0)
+
+        # Unsafe request for P4 [2, 3, 0] -> Denied & Rolled back in C (leaves available [0, 0, 0])
+        req_c[0] = 2; req_c[1] = 3; req_c[2] = 0
+        denied = self.bankers_c.requestResources(4, n, m, req_c, alloc_c, need_c, avail_c)
+        self.assertEqual(denied, 0)
+        # Check that allocation and available were restored (rolled back)
+        self.assertEqual(alloc_c[4][0], 0)
+        self.assertEqual(avail_c[0], 2)
+
+    def test_15_graph_zoom_pan_and_legend(self):
+        """15. Graph zoom, pan, and legend in SVG"""
+        total = [10, 5, 7]
+        alloc = [
+            [0, 1, 0],
+            [2, 0, 0],
+            [3, 0, 2],
+            [2, 1, 1],
+            [0, 0, 2]
+        ]
+        avail = [3, 3, 2]
+
+        # Verify default viewBox at zoom 1.0, pan 0
+        svg_normal = streamlit_app.generate_rag_svg(5, 3, alloc, total, avail, zoom=1.0, pan_x=0, pan_y=0)
+        self.assertIn('viewBox="0.0 0.0 960.0', svg_normal)
+
+        # Verify zoomed-in viewBox
+        svg_zoomed = streamlit_app.generate_rag_svg(5, 3, alloc, total, avail, zoom=1.5, pan_x=50, pan_y=20)
+        # 960 / 1.5 = 640 width, vb_x = (960 - 640)/2 + 50 = 210.0
+        self.assertIn('viewBox="210.0', svg_zoomed)
+
+        # Verify Legend items exist
+        self.assertIn("Allocation (Resource → Process)", svg_normal)
+        self.assertIn("Active Request (Process → Resource)", svg_normal)
+        self.assertIn("Process", svg_normal)
+        self.assertIn("Res", svg_normal)
+
 if __name__ == "__main__":
     unittest.main()

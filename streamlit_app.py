@@ -32,7 +32,7 @@ st.markdown("""
         border: 1px solid #E2E8F0;
         border-radius: 12px;
         padding: 20px 24px;
-        margin-bottom: 24px;
+        margin-bottom: 20px;
         box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
     }
     .header-title {
@@ -62,9 +62,10 @@ st.markdown("""
         background-color: #FFFFFF;
         border: 1px solid #E2E8F0;
         border-radius: 12px;
-        padding: 16px;
+        padding: 14px;
         text-align: center;
         box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        overflow: hidden;
     }
 
     /* Badge indicators */
@@ -91,7 +92,7 @@ st.markdown("""
     .badge-error {
         background-color: #FEE2E2;
         color: #B91C1C;
-        padding: 6px 14px;
+        padding: 8px 14px;
         border-radius: 8px;
         font-weight: 600;
         font-size: 13px;
@@ -120,22 +121,20 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# C LIBRARY AUTO-COMPILATION & CTYPES BINDING
+# BACKEND INTEGRATION: C SHARED LIBRARY VIA CTYPES
 # ==============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-IS_WINDOWS = sys.platform == "win32"
-LIB_NAME = "libbankers.dll" if IS_WINDOWS else "libbankers.so"
-
+@st.cache_resource
 def get_c_library():
-    """Locates or automatically compiles bankers.c into a shared library."""
-    c_src_candidates = [
-        os.path.join(BASE_DIR, "backend", "bankers.c"),
-        os.path.join(BASE_DIR, "bankers.c")
-    ]
-    src_file = next((p for p in c_src_candidates if os.path.exists(p)), None)
-    if not src_file:
-        st.error(f"Cannot find 'bankers.c'. Searched: {c_src_candidates}")
-        st.stop()
+    """Compiles and loads the C shared library for Banker's Algorithm."""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    src_file = os.path.join(base_dir, "backend", "bankers.c")
+
+    if sys.platform == "win32":
+        LIB_NAME = "bankers.dll"
+    elif sys.platform == "darwin":
+        LIB_NAME = "libbankers.dylib"
+    else:
+        LIB_NAME = "libbankers.so"
 
     lib_path = os.path.join(os.path.dirname(src_file), LIB_NAME)
 
@@ -153,7 +152,7 @@ def get_c_library():
                 st.stop()
 
     try:
-        cdll = ctypes.CDLL(lib_path)
+        bankers = ctypes.CDLL(lib_path)
     except Exception as e:
         st.error(f"Failed to load C shared library ({lib_path}): {e}")
         st.stop()
@@ -164,32 +163,48 @@ def get_c_library():
     Matrix = (ctypes.c_int * MAX_R) * MAX_P
     Sequence = ctypes.c_int * MAX_P
 
-    cdll.calculateNeed.argtypes = [ctypes.c_int, ctypes.c_int, Matrix, Matrix, Matrix]
-    cdll.calculateNeed.restype = ctypes.c_int
+    bankers.calculateNeed.argtypes = [
+        ctypes.c_int, ctypes.c_int, Matrix, Matrix, Matrix
+    ]
+    bankers.calculateNeed.restype = ctypes.c_int
 
-    cdll.safetyAlgorithm.argtypes = [ctypes.c_int, ctypes.c_int, Matrix, Matrix, Vector, Sequence]
-    cdll.safetyAlgorithm.restype = ctypes.c_int
+    bankers.safetyAlgorithm.argtypes = [
+        ctypes.c_int, ctypes.c_int, Matrix, Matrix, Vector, Sequence
+    ]
+    bankers.safetyAlgorithm.restype = ctypes.c_int
 
-    cdll.requestResources.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_int, Vector, Matrix, Matrix, Vector]
-    cdll.requestResources.restype = ctypes.c_int
+    bankers.requestResources.argtypes = [
+        ctypes.c_int, ctypes.c_int, ctypes.c_int, Vector, Matrix, Matrix, Vector
+    ]
+    bankers.requestResources.restype = ctypes.c_int
 
-    cdll.releaseResources.argtypes = [ctypes.c_int, ctypes.c_int, Vector, Matrix, Matrix, Vector]
-    cdll.releaseResources.restype = ctypes.c_int
+    bankers.releaseResources.argtypes = [
+        ctypes.c_int, ctypes.c_int, Vector, Matrix, Matrix, Vector
+    ]
+    bankers.releaseResources.restype = ctypes.c_int
 
-    return cdll, MAX_P, MAX_R, Vector, Matrix, Sequence
+    return bankers, MAX_P, MAX_R, Vector, Matrix, Sequence
 
 bankers_c, MAX_P, MAX_R, Vector, Matrix, Sequence = get_c_library()
 
 # ==============================================================================
-# BUILT-IN BENCHMARKS / PRESETS
+# BENCHMARK PRESETS (SUPPORTING ANY DYNAMIC DIMENSION)
 # ==============================================================================
 PRESETS = {
     "3 Processes × 2 Resources": {
         "processes": 3,
         "resources": 2,
-        "total": [5, 5],
-        "allocation": [[1, 1], [2, 1], [1, 2]],
-        "maximum": [[2, 2], [2, 2], [3, 3]]
+        "total": [6, 6],
+        "allocation": [
+            [1, 2],
+            [2, 1],
+            [1, 2]
+        ],
+        "maximum": [
+            [2, 3],
+            [3, 2],
+            [2, 4]
+        ]
     },
     "5 Processes × 3 Resources (Default)": {
         "processes": 5,
@@ -215,7 +230,7 @@ PRESETS = {
         "resources": 4,
         "total": [12, 9, 10, 8],
         "allocation": [
-            [1, 1, 0, 1],
+            [1, 1, 1, 1],
             [2, 0, 1, 1],
             [3, 1, 2, 1],
             [1, 2, 1, 0],
@@ -223,12 +238,12 @@ PRESETS = {
             [1, 1, 1, 1]
         ],
         "maximum": [
-            [3, 2, 1, 2],
-            [4, 1, 2, 2],
-            [4, 2, 3, 2],
-            [2, 3, 2, 1],
             [3, 2, 2, 2],
-            [2, 2, 2, 2]
+            [4, 2, 3, 2],
+            [5, 3, 4, 2],
+            [3, 4, 2, 1],
+            [2, 1, 2, 2],
+            [3, 3, 2, 2]
         ]
     }
 }
@@ -297,7 +312,23 @@ if "initialized" not in st.session_state:
     st.session_state.allocation = [list(r) for r in preset["allocation"]]
     st.session_state.maximum = [list(r) for r in preset["maximum"]]
     st.session_state.anim_index = 0
+    st.session_state.pending_request = None
+    st.session_state.request_status = None
+    st.session_state.graph_zoom = 1.0
+    st.session_state.graph_pan_x = 0
+    st.session_state.graph_pan_y = 0
     st.session_state.initialized = True
+
+if "pending_request" not in st.session_state:
+    st.session_state.pending_request = None
+if "request_status" not in st.session_state:
+    st.session_state.request_status = None
+if "graph_zoom" not in st.session_state:
+    st.session_state.graph_zoom = 1.0
+if "graph_pan_x" not in st.session_state:
+    st.session_state.graph_pan_x = 0
+if "graph_pan_y" not in st.session_state:
+    st.session_state.graph_pan_y = 0
 
 # ==============================================================================
 # SIDEBAR CONFIGURATION (SECTION A: DYNAMIC PROCESS & RESOURCE SETUP)
@@ -315,6 +346,11 @@ with st.sidebar:
         st.session_state.allocation = [list(r) for r in p_data["allocation"]]
         st.session_state.maximum = [list(r) for r in p_data["maximum"]]
         st.session_state.anim_index = 0
+        st.session_state.pending_request = None
+        st.session_state.request_status = None
+        st.session_state.graph_zoom = 1.0
+        st.session_state.graph_pan_x = 0
+        st.session_state.graph_pan_y = 0
         st.rerun()
 
     st.markdown("---")
@@ -342,6 +378,11 @@ with st.sidebar:
             st.session_state.allocation = new_alloc
             st.session_state.maximum = new_max
             st.session_state.anim_index = 0
+            st.session_state.pending_request = None
+            st.session_state.request_status = None
+            st.session_state.graph_zoom = 1.0
+            st.session_state.graph_pan_x = 0
+            st.session_state.graph_pan_y = 0
             st.rerun()
 
     st.markdown("---")
@@ -414,33 +455,56 @@ else:
     need_mat, avail_vec, is_safe, safe_seq = compute_c_state()
 
 # ==============================================================================
-# SVG RESOURCE ALLOCATION GRAPH GENERATOR
+# SVG RESOURCE ALLOCATION GRAPH GENERATOR (SOLID ALLOC & DOTTED REQUEST ARROWS)
 # ==============================================================================
-def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
-    """Generates a large, clean, high-resolution SVG Resource Allocation Graph."""
-    width = 920
-    height = max(520, max(n, m) * 65 + 100)
+def generate_rag_svg(
+    n, m, allocation, total, available, active_proc=None,
+    pending_request=None, zoom=1.0, pan_x=0, pan_y=0
+):
+    """
+    Generates a large, clean, high-resolution SVG Resource Allocation Graph (RAG)
+    supporting dynamic dimensions, pan & zoom, distinct solid allocation arrows,
+    and distinct dotted pending request arrows.
+    """
+    width = 960
+    height = max(560, max(n, m) * 75 + 130)
 
     px = 180
-    rx = 740
+    rx = 760
 
     def py(i):
-        if n <= 1: return height / 2
-        return 70 + i * ((height - 140) / (n - 1))
+        if n <= 1: return (height - 60) / 2
+        return 80 + i * ((height - 180) / (n - 1))
 
     def ry(j):
-        if m <= 1: return height / 2
-        return 100 + j * ((height - 200) / (m - 1))
+        if m <= 1: return (height - 60) / 2
+        return 95 + j * ((height - 210) / (m - 1))
 
     p_rad = max(24, min(32, 280 / n))
-    r_w = max(86, min(102, 750 / m))
-    r_h = max(50, min(60, 480 / m))
+    r_w = max(90, min(108, 750 / m))
+    r_h = max(52, min(64, 480 / m))
+
+    # Calculate ViewBox for Zoom and Pan
+    z = max(0.4, min(3.0, float(zoom)))
+    vb_w = width / z
+    vb_h = height / z
+    vb_x = ((width - vb_w) / 2) + pan_x
+    vb_y = ((height - vb_h) / 2) + pan_y
 
     svg_parts = [
-        f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" xmlns="http://www.w3.org/2000/svg" style="background:#FFFFFF; border-radius:12px;">',
+        f'<svg viewBox="{vb_x:.1f} {vb_y:.1f} {vb_w:.1f} {vb_h:.1f}" width="100%" height="{height}" xmlns="http://www.w3.org/2000/svg" style="background:#FFFFFF; border-radius:12px; display:block;">',
         '<defs>',
-        '  <marker id="allocArrow" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">',
-        '    <path d="M0,0 L0,7 L7,3.5 z" fill="#2563EB"/>',
+        '  <style>',
+        '    @keyframes flowDashes { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }',
+        '    .rag-req-edge { stroke-dasharray: 7, 5; animation: flowDashes 1.2s linear infinite; }',
+        '  </style>',
+        '  <!-- Blue Arrowhead for Allocation: Resource -> Process -->',
+        '  <marker id="allocArrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">',
+        '    <path d="M0,0 L0,7 L8,3.5 z" fill="#2563EB"/>',
+        '  </marker>',
+        '  <!-- Orange Arrowhead for Request: Process -> Resource -->',
+        '  <marker id="reqArrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">',
+        '    <path d="M0,0 L0,7 L8,3.5 z" fill="#EA580C"/>',
         '  </marker>',
         '  <filter id="nodeShadow" x="-20%" y="-20%" width="140%" height="140%">',
         '    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0F172A" flood-opacity="0.08"/>',
@@ -448,11 +512,24 @@ def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
         '</defs>'
     ]
 
-    # Directed Allocation Edges (Resource -> Process, Solid Blue)
+    # Parse Pending Request if active
+    pending_proc = None
+    pending_vals = [0] * m
+    if pending_request and isinstance(pending_request, dict):
+        p_idx = pending_request.get("proc")
+        p_v = pending_request.get("values", [])
+        if p_idx is not None and 0 <= p_idx < n:
+            pending_proc = p_idx
+            for j in range(min(m, len(p_v))):
+                if p_v[j] > 0:
+                    pending_vals[j] = p_v[j]
+
+    # 1. Directed Allocation Edges (Resource -> Process, Solid Blue)
     for i in range(n):
         for j in range(m):
             qty = allocation[i][j]
-            if qty <= 0: continue
+            if qty <= 0:
+                continue
 
             x1 = rx - (r_w / 2)
             y1 = ry(j)
@@ -461,31 +538,75 @@ def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
 
             mid_x = (x1 + x2) / 2
             mid_y = (y1 + y2) / 2
-            curve_y = (i - j) * 5
+
+            # If this process ALSO has an active request for this resource, curve downwards to avoid collision
+            has_coexisting_req = (i == pending_proc and pending_vals[j] > 0)
+            curve_y = ((i - j) * 6) + (18 if has_coexisting_req else 0)
 
             svg_parts.append(
-                f'<path d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="#2563EB" stroke-width="2.5" fill="none" opacity="0.9" marker-end="url(#allocArrow)"/>'
+                f'<path d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="#2563EB" stroke-width="2.5" fill="none" opacity="0.95" marker-end="url(#allocArrow)"/>'
             )
+            label_y = mid_y + curve_y + (16 if has_coexisting_req else -7)
             svg_parts.append(
-                f'<text x="{mid_x}" y="{mid_y + curve_y - 7}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="#1D4ED8" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{qty}</text>'
+                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="#1D4ED8" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{qty}</text>'
             )
 
-    # Process Nodes (Soft Blue)
+    # 2. Directed Pending Request Edges (Process -> Resource, Dotted/Dashed Orange)
+    if pending_proc is not None:
+        i = pending_proc
+        for j in range(m):
+            req_qty = pending_vals[j]
+            if req_qty <= 0:
+                continue
+
+            x1 = px + p_rad
+            y1 = py(i)
+            x2 = rx - (r_w / 2)
+            y2 = ry(j)
+
+            mid_x = (x1 + x2) / 2
+            mid_y = (y1 + y2) / 2
+
+            # If this process ALSO has an allocation from this resource, curve upwards to separate paths
+            has_coexisting_alloc = (allocation[i][j] > 0)
+            curve_y = ((i - j) * 6) - (20 if has_coexisting_alloc else 0)
+
+            svg_parts.append(
+                f'<path class="rag-req-edge" d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="#EA580C" stroke-width="2.6" fill="none" opacity="0.95" marker-end="url(#reqArrow)"/>'
+            )
+            label_y = mid_y + curve_y - (9 if has_coexisting_alloc else 7)
+            svg_parts.append(
+                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="#EA580C" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{req_qty} (req)</text>'
+            )
+
+    # 3. Process Nodes (Soft Blue)
     for i in range(n):
         cy = py(i)
         is_highlighted = active_proc == f"P{i}"
-        fill_col = "#ECFDF5" if is_highlighted else "#F0F9FF"
-        stroke_col = "#059669" if is_highlighted else "#0284C7"
-        s_width = 4 if is_highlighted else 2.5
+        has_pending = pending_proc == i
+
+        if is_highlighted:
+            fill_col = "#ECFDF5"
+            stroke_col = "#059669"
+            s_width = 4
+        elif has_pending:
+            fill_col = "#FFF7ED"
+            stroke_col = "#EA580C"
+            s_width = 3.2
+        else:
+            fill_col = "#F0F9FF"
+            stroke_col = "#0284C7"
+            s_width = 2.5
 
         svg_parts.append(
             f'<circle cx="{px}" cy="{cy}" r="{p_rad}" fill="{fill_col}" stroke="{stroke_col}" stroke-width="{s_width}" filter="url(#nodeShadow)"/>'
         )
+        label_col = "#059669" if is_highlighted else ("#C2410C" if has_pending else "#0369A1")
         svg_parts.append(
-            f'<text x="{px}" y="{cy + 5}" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="#0369A1" text-anchor="middle">{f"P{i}"}</text>'
+            f'<text x="{px}" y="{cy + 5}" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="{label_col}" text-anchor="middle">{f"P{i}"}</text>'
         )
 
-    # Resource Nodes (Soft Violet)
+    # 4. Resource Nodes (Soft Violet)
     for j in range(m):
         y = ry(j)
         x_left = rx - (r_w / 2)
@@ -508,6 +629,26 @@ def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
             f'<text x="{rx}" y="{y + 20}" font-family="Inter, sans-serif" font-size="11" font-weight="700" fill="{avail_color}" text-anchor="middle">Avail: {avail}</text>'
         )
 
+    # 5. Integrated SVG Legend at Bottom
+    leg_y = height - 44
+    svg_parts.append(
+        f'<g transform="translate({(width / 2) - 370}, {leg_y})">'
+        f'<rect x="0" y="0" width="740" height="34" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.2"/>'
+        # Allocation Legend Item
+        f'<line x1="20" y1="17" x2="65" y2="17" stroke="#2563EB" stroke-width="2.5" marker-end="url(#allocArrow)"/>'
+        f'<text x="75" y="21" font-family="Inter, sans-serif" font-size="12" font-weight="600" fill="#1E293B">Allocation (Resource → Process)</text>'
+        # Request Legend Item
+        f'<line x1="315" y1="17" x2="360" y2="17" stroke="#EA580C" stroke-width="2.6" stroke-dasharray="6,4" marker-end="url(#reqArrow)"/>'
+        f'<text x="370" y="21" font-family="Inter, sans-serif" font-size="12" font-weight="600" fill="#1E293B">Active Request (Process → Resource)</text>'
+        # Process Node
+        f'<circle cx="630" cy="17" r="7" fill="#F0F9FF" stroke="#0284C7" stroke-width="2"/>'
+        f'<text x="644" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#0369A1">Process</text>'
+        # Resource Node
+        f'<rect x="692" y="11" width="12" height="12" rx="3" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.8"/>'
+        f'<text x="709" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#6D28D9">Res</text>'
+        f'</g>'
+    )
+
     svg_parts.append('</svg>')
     return "".join(svg_parts)
 
@@ -516,7 +657,7 @@ def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
 # ==============================================================================
 st.markdown("""
 <div class="header-box">
-    <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
             <h1 class="header-title">Banker's Algorithm Simulator</h1>
             <p class="header-subtitle">Interactive Deadlock Avoidance, Real-Time C Core Execution & Resource Allocation Graph</p>
@@ -540,18 +681,64 @@ with col_main:
     st.subheader("📊 Resource Allocation Graph (RAG)")
     st.markdown(
         """
-        <div style="display:flex; gap:16px; margin-bottom:8px; font-size:12px; color:#475569;">
+        <div style="display:flex; flex-wrap:wrap; gap:16px; margin-bottom:8px; font-size:12px; color:#475569;">
             <span>🔵 <b>Processes:</b> P0..P{n}</span>
             <span>🟣 <b>Resources:</b> R0..R{m}</span>
-            <span><b style="color:#2563EB;">→ Allocation:</b> Resource to Process</span>
-            <span><b style="color:#EA580C;">⇢ Request:</b> Process to Resource</span>
+            <span><b style="color:#2563EB;">──► Allocation:</b> Solid Blue (Resource → Process)</span>
+            <span><b style="color:#EA580C;">┄┄► Request:</b> Dotted Orange (Process → Resource)</span>
         </div>
         """.format(n=st.session_state.n-1, m=st.session_state.m-1),
         unsafe_allow_html=True
     )
 
+    # Graph Pan & Zoom Controls Toolbar
+    z_c1, z_c2, z_c3, z_c4, z_c5, z_c6, z_c7 = st.columns([1, 1, 1, 1, 1, 1, 2])
+    with z_c1:
+        if st.button("➕ Zoom In", help="Zoom into the graph canvas"):
+            st.session_state.graph_zoom = round(min(2.5, st.session_state.graph_zoom + 0.2), 2)
+            st.rerun()
+    with z_c2:
+        if st.button("➖ Zoom Out", help="Zoom out of the graph canvas"):
+            st.session_state.graph_zoom = round(max(0.6, st.session_state.graph_zoom - 0.2), 2)
+            st.rerun()
+    with z_c3:
+        if st.button("⬅️ Left", help="Pan graph view left"):
+            st.session_state.graph_pan_x -= 50
+            st.rerun()
+    with z_c4:
+        if st.button("➡️ Right", help="Pan graph view right"):
+            st.session_state.graph_pan_x += 50
+            st.rerun()
+    with z_c5:
+        if st.button("⬆️ Up", help="Pan graph view up"):
+            st.session_state.graph_pan_y -= 40
+            st.rerun()
+    with z_c6:
+        if st.button("⬇️ Down", help="Pan graph view down"):
+            st.session_state.graph_pan_y += 40
+            st.rerun()
+    with z_c7:
+        zoom_pct = int(st.session_state.graph_zoom * 100)
+        btn_label = f"🎯 Reset View ({zoom_pct}%)"
+        if st.button(btn_label, help="Reset zoom and pan to fit screen"):
+            st.session_state.graph_zoom = 1.0
+            st.session_state.graph_pan_x = 0
+            st.session_state.graph_pan_y = 0
+            st.rerun()
+
     active_p = safe_seq[st.session_state.anim_index] if (safe_seq and st.session_state.anim_index < len(safe_seq)) else None
-    svg_code = generate_rag_svg(st.session_state.n, st.session_state.m, st.session_state.allocation, st.session_state.total, avail_vec, active_p)
+    svg_code = generate_rag_svg(
+        n=st.session_state.n,
+        m=st.session_state.m,
+        allocation=st.session_state.allocation,
+        total=st.session_state.total,
+        available=avail_vec,
+        active_proc=active_p,
+        pending_request=st.session_state.pending_request,
+        zoom=st.session_state.graph_zoom,
+        pan_x=st.session_state.graph_pan_x,
+        pan_y=st.session_state.graph_pan_y
+    )
     st.markdown(f'<div class="graph-card">{svg_code}</div>', unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
@@ -603,6 +790,25 @@ with col_ops:
     req_proc = st.selectbox("Requesting Process", proc_labels, index=0)
     req_p_idx = int(req_proc[1:])
 
+    # Display active pending request indicator banner if one exists
+    if st.session_state.pending_request is not None:
+        p_info = st.session_state.pending_request
+        st.info(f"⏳ **Active Pending Request:** P{p_info['proc']} requesting `{p_info['values']}` (Dotted orange arrows visible on graph)")
+        if st.button("❌ Clear Pending Request Arrow", key="btn_clear_pending"):
+            st.session_state.pending_request = None
+            st.session_state.request_status = None
+            st.rerun()
+
+    # Display previous request execution status message
+    if st.session_state.request_status:
+        stat = st.session_state.request_status
+        if stat["type"] == "success":
+            st.success(stat["msg"])
+        elif stat["type"] == "error":
+            st.error(stat["msg"])
+        elif stat["type"] == "info":
+            st.info(stat["msg"])
+
     req_cols = st.columns(st.session_state.m)
     req_vals = []
     for j in range(st.session_state.m):
@@ -610,47 +816,81 @@ with col_ops:
             val = st.number_input(f"Req R{j}", min_value=0, max_value=99, value=0, key=f"req_field_{j}")
             req_vals.append(val)
 
-    if st.button("Submit Request to C Core", type="primary", disabled=bool(val_errors)):
-        if all(v == 0 for v in req_vals):
-            st.warning("Please enter at least one non-zero request quantity.")
-        else:
-            # Check Need
-            exceeds_need = any(req_vals[j] > need_mat[req_p_idx][j] for j in range(st.session_state.m))
-            exceeds_avail = any(req_vals[j] > avail_vec[j] for j in range(st.session_state.m))
-
-            if exceeds_need:
-                st.error("❌ Request Denied: Exceeds process's maximum declared Need.")
-            elif exceeds_avail:
-                st.error("❌ Request Denied: Insufficient Available resources in the system.")
+    b_col1, b_col2 = st.columns([1, 1])
+    with b_col1:
+        if st.button("👁️ Preview Request Arrow", help="Visualize dotted request arrows on the graph without committing", disabled=bool(val_errors)):
+            if all(v == 0 for v in req_vals):
+                st.warning("Please enter at least one non-zero request quantity to preview.")
             else:
-                # Call C backend requestResources with safety check and rollback
-                alloc_c = Matrix()
-                max_c = Matrix()
-                need_c = Matrix()
-                avail_c = Vector()
-                req_c = Vector()
+                st.session_state.pending_request = {"proc": req_p_idx, "values": list(req_vals)}
+                st.session_state.request_status = {
+                    "type": "info",
+                    "msg": f"Pending request for {req_proc} with values {req_vals} is now visible on the graph as dotted orange arrows."
+                }
+                st.rerun()
 
-                for i in range(st.session_state.n):
-                    for j in range(st.session_state.m):
-                        alloc_c[i][j] = int(st.session_state.allocation[i][j])
-                        max_c[i][j] = int(st.session_state.maximum[i][j])
-                        need_c[i][j] = int(need_mat[i][j])
+    with b_col2:
+        if st.button("Submit Request to C Core", type="primary", disabled=bool(val_errors)):
+            if all(v == 0 for v in req_vals):
+                st.warning("Please enter at least one non-zero request quantity.")
+            else:
+                # Stage as active pending request
+                st.session_state.pending_request = {"proc": req_p_idx, "values": list(req_vals)}
 
-                for j in range(st.session_state.m):
-                    avail_c[j] = int(avail_vec[j])
-                    req_c[j] = int(req_vals[j])
+                # Check Need
+                exceeds_need = any(req_vals[j] > need_mat[req_p_idx][j] for j in range(st.session_state.m))
+                exceeds_avail = any(req_vals[j] > avail_vec[j] for j in range(st.session_state.m))
 
-                granted = bankers_c.requestResources(
-                    req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
-                )
-
-                if granted:
-                    for j in range(st.session_state.m):
-                        st.session_state.allocation[req_p_idx][j] += req_vals[j]
-                    st.success(f"✅ Request Granted to {req_proc} by C Core! Allocation state updated.")
+                if exceeds_need:
+                    st.session_state.request_status = {
+                        "type": "error",
+                        "msg": f"❌ Request Denied for {req_proc}: Request {req_vals} exceeds maximum declared Need {need_mat[req_p_idx]}."
+                    }
+                    st.rerun()
+                elif exceeds_avail:
+                    st.session_state.request_status = {
+                        "type": "error",
+                        "msg": f"❌ Request Denied for {req_proc}: Insufficient Available resources in system (Requested: {req_vals}, Available: {avail_vec})."
+                    }
                     st.rerun()
                 else:
-                    st.error(f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state. C algorithm rolled back.")
+                    # Call C backend requestResources with safety check and rollback
+                    alloc_c = Matrix()
+                    max_c = Matrix()
+                    need_c = Matrix()
+                    avail_c = Vector()
+                    req_c = Vector()
+
+                    for i in range(st.session_state.n):
+                        for j in range(st.session_state.m):
+                            alloc_c[i][j] = int(st.session_state.allocation[i][j])
+                            max_c[i][j] = int(st.session_state.maximum[i][j])
+                            need_c[i][j] = int(need_mat[i][j])
+
+                    for j in range(st.session_state.m):
+                        avail_c[j] = int(avail_vec[j])
+                        req_c[j] = int(req_vals[j])
+
+                    granted = bankers_c.requestResources(
+                        req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
+                    )
+
+                    if granted:
+                        for j in range(st.session_state.m):
+                            st.session_state.allocation[req_p_idx][j] += req_vals[j]
+                        # Remove pending request edge on grant
+                        st.session_state.pending_request = None
+                        st.session_state.request_status = {
+                            "type": "success",
+                            "msg": f"✅ Request Granted to {req_proc} by C Core! Allocation state updated, pending request edge removed."
+                        }
+                        st.rerun()
+                    else:
+                        st.session_state.request_status = {
+                            "type": "error",
+                            "msg": f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state (Deadlock Risk). C algorithm rolled back."
+                        }
+                        st.rerun()
 
     st.markdown("---")
 
@@ -676,7 +916,11 @@ with col_ops:
         else:
             for j in range(st.session_state.m):
                 st.session_state.allocation[rel_p_idx][j] -= rel_vals[j]
-            st.success(f"✅ Resources successfully released by {rel_proc}!")
+            st.session_state.pending_request = None
+            st.session_state.request_status = {
+                "type": "success",
+                "msg": f"✅ Resources successfully released by {rel_proc}!"
+            }
             st.rerun()
 
 # ==============================================================================
