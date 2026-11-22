@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Banker's Algorithm Visualizer - SaaS OS Simulator</title>
+    <!-- Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Header Navigation -->
+    <header class="topbar">
+        <div class="brand-group">
+            <div class="brand-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                    <line x1="8" y1="21" x2="16" y2="21"></line>
+                    <line x1="12" y1="17" x2="12" y2="21"></line>
+                </svg>
+            </div>
+            <div>
+                <h1>Banker's Algorithm Simulator</h1>
+                <p>Interactive Deadlock Avoidance & Resource Allocation Graph Engine</p>
+            </div>
+        </div>
+        <div class="header-badges">
+            <span class="badge-tag">C Core Engine</span>
+            <span id="connectionStatus" class="status-badge status-checking">Checking backend...</span>
+        </div>
+    </header>
+
+    <main class="dashboard">
+
+        <!-- ==========================================
+             SECTION A: SYSTEM CONFIGURATION
+             ========================================== -->
+        <section class="panel config-panel">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <div class="section-number">A</div>
+                    <div>
+                        <h2>System Configuration</h2>
+                        <span class="panel-subtitle">Dynamic processes (1..10) & resources (1..10)</span>
+                    </div>
+                </div>
+                <!-- Quick Preset Selector -->
+                <div class="preset-group">
+                    <span class="preset-label">Presets:</span>
+                    <button id="preset3x2Btn" class="btn-chip" type="button">3 Processes × 2 Resources</button>
+                    <button id="preset5x3Btn" class="btn-chip active" type="button">5 Processes × 3 Resources (Default)</button>
+                    <button id="preset6x4Btn" class="btn-chip" type="button">6 Processes × 4 Resources</button>
+                </div>
+            </div>
+
+            <!-- Dimension Selectors -->
+            <div class="config-controls-grid">
+                <div class="form-group">
+                    <label for="numProcessesInput">Number of Processes (N)</label>
+                    <input type="number" id="numProcessesInput" class="form-input" min="1" max="10" value="5">
+                </div>
+                <div class="form-group">
+                    <label for="numResourcesInput">Number of Resource Types (M)</label>
+                    <input type="number" id="numResourcesInput" class="form-input" min="1" max="10" value="3">
+                </div>
+                <div class="form-group align-end">
+                    <button id="applyDimensionsBtn" class="btn btn-secondary">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                        Update Matrix Grid
+                    </button>
+                </div>
+            </div>
+
+            <!-- Dynamic Matrix Config Tables -->
+            <div class="config-tables-wrapper">
+                <div class="config-table-block">
+                    <label>Total Available Capacity per Resource Type</label>
+                    <div id="totalInstancesContainer" class="vector-input-row"></div>
+                </div>
+
+                <div class="config-matrices-grid">
+                    <div class="config-table-block">
+                        <label>Allocation Matrix (Current Hold)</label>
+                        <div id="allocInputsContainer" class="matrix-input-table-wrap"></div>
+                    </div>
+                    <div class="config-table-block">
+                        <label>Maximum Claim Matrix (Max Need)</label>
+                        <div id="maxInputsContainer" class="matrix-input-table-wrap"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="config-action-row">
+                <button id="initializeBtn" class="btn btn-primary btn-lg">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"></path></svg>
+                    Initialize Simulation with Current Configuration
+                </button>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             SECTION B: RESOURCE ALLOCATION GRAPH (HERO)
+             ========================================== -->
+        <section class="panel graph-panel">
+            <div class="graph-header">
+                <div class="panel-header-title">
+                    <div class="section-number">B</div>
+                    <div>
+                        <h2>Resource Allocation Graph (RAG)</h2>
+                        <span class="panel-subtitle">Interactive bipartite directed graph with pan & zoom</span>
+                    </div>
+                </div>
+                <!-- Pan / Zoom Controls -->
+                <div class="graph-toolbar">
+                    <button id="zoomInBtn" class="tool-btn" title="Zoom In">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                    </button>
+                    <button id="zoomOutBtn" class="tool-btn" title="Zoom Out">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                    </button>
+                    <button id="fitScreenBtn" class="tool-btn" title="Fit to Screen">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                    </button>
+                    <button id="resetViewBtn" class="tool-btn" title="Reset View">
+                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"></path><path d="M3 3v5h5"></path></svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Graph Legend -->
+            <div class="legend">
+                <span class="legend-item"><span class="legend-dot legend-process"></span> Process Nodes (P0, P1...)</span>
+                <span class="legend-item"><span class="legend-dot legend-resource"></span> Resource Nodes (R0, R1...)</span>
+                <span class="legend-item"><span class="legend-line legend-alloc"></span> Allocation (Solid Blue: Rj → Pi)</span>
+                <span class="legend-item"><span class="legend-line legend-req"></span> Request (Dashed Orange: Pi → Rj)</span>
+            </div>
+
+            <!-- SVG Canvas Wrapper -->
+            <div class="canvas-wrapper" id="canvasWrapper">
+                <svg id="resourceGraph" viewBox="0 0 920 540" role="img" aria-label="Resource allocation graph"></svg>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             SECTION C, I, J, K: STATUS, SAFETY & ANIMATION
+             ========================================== -->
+        <section class="panel status-panel">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <div class="section-number">C</div>
+                    <div>
+                        <h2>System State & Safe Sequence Verifier</h2>
+                        <span class="panel-subtitle">Banker's Algorithm safety status & animated validation</span>
+                    </div>
+                </div>
+                <div class="action-btn-group">
+                    <button id="safetyBtn" class="btn btn-primary">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path></svg>
+                        Run Safety Check
+                    </button>
+                </div>
+            </div>
+
+            <!-- Status KPI Cards -->
+            <div class="status-cards-grid">
+                <div class="status-card">
+                    <span class="status-card-label">System Safety Status (Section I)</span>
+                    <div id="safetyStatus" class="status-badge-lg status-idle">Not initialized</div>
+                </div>
+
+                <div class="status-card">
+                    <span class="status-card-label">Available Resources Vector [Work] (Section C)</span>
+                    <div id="availableValues" class="vector-display">-</div>
+                </div>
+
+                <div class="status-card full-width">
+                    <span class="status-card-label">Safe Execution Sequence (Section J)</span>
+                    <div id="safeSequence" class="sequence-display">-</div>
+                </div>
+            </div>
+
+            <!-- Animation Controls (Section 5) -->
+            <div class="anim-control-card">
+                <div class="anim-header">
+                    <span class="anim-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        Safe Sequence Visual Animation
+                    </span>
+                    <span id="animProgressText" class="anim-step-badge">Idle</span>
+                </div>
+                <div class="anim-button-row">
+                    <button id="animPlayBtn" class="btn btn-emerald" type="button">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                        Animate Safe Sequence
+                    </button>
+                    <button id="animPauseBtn" class="btn btn-secondary" type="button" disabled>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>
+                        Pause
+                    </button>
+                    <button id="animRestartBtn" class="btn btn-outline" type="button" disabled>
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 4v6h6"></path><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                        Restart
+                    </button>
+                    <button id="animResetBtn" class="btn btn-outline" type="button">Reset</button>
+                </div>
+            </div>
+
+            <!-- Execution Log (Section K) -->
+            <div class="log-container">
+                <div class="log-header">
+                    <h3>Execution Log (Section K)</h3>
+                    <button id="clearLogBtn" class="log-clear-btn" title="Clear log">Clear</button>
+                </div>
+                <div id="executionLog" class="execution-log" aria-live="polite">
+                    <div class="log-line">Waiting for simulation initialization...</div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             SECTION G & H: INTERACTIVE OPERATIONS
+             ========================================== -->
+        <section class="panel operations-panel">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <div class="section-number">G / H</div>
+                    <div>
+                        <h2>Interactive Resource Operations</h2>
+                        <span class="panel-subtitle">Request or release resources with C backend rollback</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="operations-grid">
+                <!-- Resource Request (Section G) -->
+                <div class="op-card">
+                    <div class="op-card-header">
+                        <h3>Resource Request (Section G)</h3>
+                        <span class="badge-tag">Banker's Test</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="requestProcess">Requesting Process</label>
+                        <select id="requestProcess" class="form-select"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Request Vector (instances per resource type)</label>
+                        <div id="requestVectorContainer" class="vector-input-row"></div>
+                        <span class="input-hint">Requires: Request ≤ Need AND Request ≤ Available</span>
+                    </div>
+                    <button id="requestBtn" class="btn btn-indigo">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                        Submit Request to C Backend
+                    </button>
+                </div>
+
+                <!-- Resource Release (Section H) -->
+                <div class="op-card">
+                    <div class="op-card-header">
+                        <h3>Resource Release (Section H)</h3>
+                        <span class="badge-tag">Deallocate</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="releaseProcess">Releasing Process</label>
+                        <select id="releaseProcess" class="form-select"></select>
+                    </div>
+                    <div class="form-group">
+                        <label>Release Vector (instances to release)</label>
+                        <div id="releaseVectorContainer" class="vector-input-row"></div>
+                        <span class="input-hint">Requires: Release ≤ Allocation</span>
+                    </div>
+                    <button id="releaseBtn" class="btn btn-outline">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="19" x2="12" y2="5"></line><polyline points="5 12 12 5 19 12"></polyline></svg>
+                        Release Resources
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             SECTION D, E, F: MATRICES
+             ========================================== -->
+        <section class="panel matrix-panel">
+            <div class="panel-header">
+                <div class="panel-header-title">
+                    <div class="section-number">D-F</div>
+                    <div>
+                        <h2>System Resource Matrices</h2>
+                        <span class="panel-subtitle">Computed in C shared library and synchronized in real-time</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="matrices-tri-grid">
+                <!-- Allocation Matrix (Section D) -->
+                <div class="matrix-card">
+                    <div class="matrix-header">
+                        <h3>Allocation Matrix (Section D)</h3>
+                        <span class="matrix-tag tag-blue">Held</span>
+                    </div>
+                    <div id="allocationMatrix" class="matrix-table-wrap">-</div>
+                </div>
+
+                <!-- Maximum Matrix (Section E) -->
+                <div class="matrix-card">
+                    <div class="matrix-header">
+                        <h3>Maximum Matrix (Section E)</h3>
+                        <span class="matrix-tag tag-amber">Claim</span>
+                    </div>
+                    <div id="maximumMatrix" class="matrix-table-wrap">-</div>
+                </div>
+
+                <!-- Need Matrix (Section F) -->
+                <div class="matrix-card">
+                    <div class="matrix-header">
+                        <h3>Need Matrix (Section F)</h3>
+                        <span class="matrix-tag tag-violet">Max - Alloc</span>
+                    </div>
+                    <div id="needMatrix" class="matrix-table-wrap">-</div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>Operating Systems Simulator • Banker's Algorithm Core in C (via ctypes) • Dynamic SaaS Architecture</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

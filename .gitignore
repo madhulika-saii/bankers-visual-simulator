@@ -1,0 +1,26 @@
+# Python & Virtual Environments
+venv/
+.venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Compiled binaries and libraries
+*.o
+*.obj
+backend/bankers
+bankers
+*.so
+*.dll
+*.save
+
+# Keep source files (.c, .h, .py, .html, .js, .css, .txt, .md)
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and checkpoints
+*.log
+.ipynb_checkpoints/
