@@ -375,6 +375,7 @@ class CompleteAuditTests(unittest.TestCase):
 
     def test_14_verify_graph_and_matrices_update_after_operations(self):
         """14. Verify graph SVG and matrix dataframes dynamically reflect updated state"""
+        total = [10, 5, 7]
         alloc = [
             [0, 1, 0],
             [3, 0, 2], # Granted request updated
@@ -384,15 +385,15 @@ class CompleteAuditTests(unittest.TestCase):
         ]
         avail = [2, 3, 0]
 
-        svg = streamlit_app.generate_rag_svg(5, 3, alloc, avail, active_proc="P1")
+        svg = streamlit_app.generate_rag_svg(5, 3, alloc, total, avail, active_proc="P1")
         self.assertIn("<svg", svg)
         self.assertIn("P0", svg)
         self.assertIn("P4", svg)
         self.assertIn("R0", svg)
         self.assertIn("R2", svg)
-        self.assertIn("2 avail", svg)
-        self.assertIn("3 avail", svg)
-        self.assertIn("0 avail", svg)
+        self.assertIn("Avail: 2", svg)
+        self.assertIn("Avail: 3", svg)
+        self.assertIn("Avail: 0", svg)
         # Check arrow markers
         self.assertIn('marker-end="url(#allocArrow)"', svg)
         self.assertIn('stroke="#2563EB"', svg) # Blue allocation edges
@@ -438,7 +439,7 @@ class CompleteAuditTests(unittest.TestCase):
         self.assertEqual(len(seq), 4)
 
         # Generate graph for custom 4x3
-        svg = streamlit_app.generate_rag_svg(n, m, custom_alloc, [avail_c[j] for j in range(m)])
+        svg = streamlit_app.generate_rag_svg(n, m, custom_alloc, custom_tot, [avail_c[j] for j in range(m)])
         self.assertIn("P3", svg)
         self.assertNotIn("P4", svg) # Only P0..P3
         self.assertIn("R2", svg)

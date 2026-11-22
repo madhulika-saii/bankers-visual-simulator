@@ -88,6 +88,17 @@ st.markdown("""
         display: inline-block;
         border: 1px solid #FECDD3;
     }
+    .badge-error {
+        background-color: #FEE2E2;
+        color: #B91C1C;
+        padding: 6px 14px;
+        border-radius: 8px;
+        font-weight: 600;
+        font-size: 13px;
+        display: block;
+        margin: 8px 0;
+        border: 1px solid #FCA5A5;
+    }
     .badge-info {
         background-color: #EFF6FF;
         color: #1E40AF;
@@ -128,7 +139,6 @@ def get_c_library():
 
     lib_path = os.path.join(os.path.dirname(src_file), LIB_NAME)
 
-    # Compile with GCC on Linux / Streamlit Cloud or Windows GCC if library missing
     need_compile = not os.path.exists(lib_path)
     if not need_compile and os.path.getmtime(src_file) > os.path.getmtime(lib_path):
         need_compile = True
@@ -138,7 +148,6 @@ def get_c_library():
             gcc_cmd = ["gcc", "-Wall", "-Wextra", "-std=c11", "-O2", "-fPIC", "-shared", "-o", lib_path, src_file]
             subprocess.run(gcc_cmd, check=True, capture_output=True, text=True)
         except Exception as e:
-            # Fallback check if existing binary exists in repo
             if not os.path.exists(lib_path):
                 st.error(f"Failed to compile C shared library: {e}")
                 st.stop()
@@ -149,7 +158,6 @@ def get_c_library():
         st.error(f"Failed to load C shared library ({lib_path}): {e}")
         st.stop()
 
-    # Configure ctypes types and signatures
     MAX_P = 10
     MAX_R = 10
     Vector = ctypes.c_int * MAX_R
@@ -226,6 +234,59 @@ PRESETS = {
 }
 
 # ==============================================================================
+# RIGOROUS VALIDATION HELPERS
+# ==============================================================================
+def validate_system_configuration(n, m, total, allocation, maximum):
+    """
+    Validates initial configuration:
+    1. Dimensions match n and m.
+    2. Non-negative allocation and maximum.
+    3. Maximum >= Allocation for all i, j.
+    4. Total[j] >= sum(Allocation[i][j]) for all j (preventing negative available).
+    """
+    errors = []
+
+    if not (1 <= n <= MAX_P):
+        errors.append(f"Process count must be between 1 and {MAX_P}.")
+    if not (1 <= m <= MAX_R):
+        errors.append(f"Resource type count must be between 1 and {MAX_R}.")
+
+    if len(total) != m or len(allocation) != n or len(maximum) != n:
+        errors.append("Dimension mismatch in configuration matrices.")
+        return errors
+
+    # Check Total non-negative
+    for j in range(m):
+        if total[j] < 0:
+            errors.append(f"Total capacity for R{j} cannot be negative.")
+
+    # Check Allocation <= Maximum and non-negativity
+    for i in range(n):
+        if len(allocation[i]) != m or len(maximum[i]) != m:
+            errors.append(f"Process P{i} matrix row length mismatch.")
+            continue
+        for j in range(m):
+            a = allocation[i][j]
+            mx = maximum[i][j]
+            if a < 0:
+                errors.append(f"P{i}, R{j}: Allocation ({a}) cannot be negative.")
+            if mx < 0:
+                errors.append(f"P{i}, R{j}: Maximum ({mx}) cannot be negative.")
+            if a > mx:
+                errors.append(f"P{i}, R{j}: Allocation ({a}) exceeds Maximum declared demand ({mx}).")
+
+    # Check Total >= Allocated (Available >= 0)
+    for j in range(m):
+        allocated_j = sum(allocation[i][j] for i in range(n))
+        if allocated_j > total[j]:
+            errors.append(
+                f"Resource R{j}: Total allocated instances ({allocated_j}) exceed Total system capacity ({total[j]}). "
+                f"Available would be negative ({total[j] - allocated_j})."
+            )
+
+    return errors
+
+# ==============================================================================
 # SESSION STATE INITIALIZATION
 # ==============================================================================
 if "initialized" not in st.session_state:
@@ -238,8 +299,76 @@ if "initialized" not in st.session_state:
     st.session_state.anim_index = 0
     st.session_state.initialized = True
 
+# ==============================================================================
+# SIDEBAR CONFIGURATION (SECTION A: DYNAMIC PROCESS & RESOURCE SETUP)
+# ==============================================================================
+with st.sidebar:
+    st.header("⚙️ System Configuration")
+    st.markdown("Configure system dimensions or select standard benchmarks.")
+
+    selected_preset = st.selectbox("Select Benchmark Preset", list(PRESETS.keys()), index=1)
+    if st.button("Load Preset"):
+        p_data = PRESETS[selected_preset]
+        st.session_state.n = p_data["processes"]
+        st.session_state.m = p_data["resources"]
+        st.session_state.total = list(p_data["total"])
+        st.session_state.allocation = [list(r) for r in p_data["allocation"]]
+        st.session_state.maximum = [list(r) for r in p_data["maximum"]]
+        st.session_state.anim_index = 0
+        st.rerun()
+
+    st.markdown("---")
+    st.subheader("Custom Dimensions")
+    new_n = st.slider("Processes (N)", min_value=1, max_value=MAX_P, value=st.session_state.n)
+    new_m = st.slider("Resource Types (M)", min_value=1, max_value=MAX_R, value=st.session_state.m)
+
+    if new_n != st.session_state.n or new_m != st.session_state.m:
+        if st.button("Apply New Dimensions"):
+            new_alloc = [[0]*new_m for _ in range(new_n)]
+            new_max = [[2]*new_m for _ in range(new_n)]
+            new_tot = [10]*new_m
+
+            for i in range(min(new_n, st.session_state.n)):
+                for j in range(min(new_m, st.session_state.m)):
+                    new_alloc[i][j] = st.session_state.allocation[i][j]
+                    new_max[i][j] = st.session_state.maximum[i][j]
+
+            for j in range(min(new_m, st.session_state.m)):
+                new_tot[j] = max(st.session_state.total[j], sum(new_alloc[i][j] for i in range(new_n)))
+
+            st.session_state.n = new_n
+            st.session_state.m = new_m
+            st.session_state.total = new_tot
+            st.session_state.allocation = new_alloc
+            st.session_state.maximum = new_max
+            st.session_state.anim_index = 0
+            st.rerun()
+
+    st.markdown("---")
+    st.subheader("Total Capacity Vector (Total[j])")
+    for j in range(st.session_state.m):
+        allocated_j = sum(st.session_state.allocation[i][j] for i in range(st.session_state.n))
+        st.session_state.total[j] = st.number_input(
+            f"Total R{j} (Allocated: {allocated_j})",
+            min_value=0,
+            max_value=99,
+            value=int(st.session_state.total[j]),
+            key=f"tot_in_{j}"
+        )
+
+# ==============================================================================
+# VALIDATION AND C-STATE COMPUTATION
+# ==============================================================================
+val_errors = validate_system_configuration(
+    st.session_state.n,
+    st.session_state.m,
+    st.session_state.total,
+    st.session_state.allocation,
+    st.session_state.maximum
+)
+
 def compute_c_state():
-    """Computes Need and Available vectors using actual C implementation."""
+    """Computes Need, Available, and Safety strictly via C implementation."""
     n = st.session_state.n
     m = st.session_state.m
 
@@ -254,26 +383,40 @@ def compute_c_state():
             max_c[i][j] = int(st.session_state.maximum[i][j])
 
     for j in range(m):
-        used = sum(st.session_state.allocation[i][j] for i in range(n))
-        avail_c[j] = int(st.session_state.total[j]) - used
+        allocated_j = sum(st.session_state.allocation[i][j] for i in range(n))
+        # Available[j] = Total[j] - sum(Allocation[i][j])
+        avail_c[j] = int(st.session_state.total[j]) - allocated_j
 
-    # Compute Need in C
+    # Compute Need in C: Need = Maximum - Allocation
     ok = bankers_c.calculateNeed(n, m, alloc_c, max_c, need_c)
 
     need = [[need_c[i][j] for j in range(m)] for i in range(n)]
     available = [avail_c[j] for j in range(m)]
 
-    # Compute Safety in C
+    # Run C Safety Algorithm
     seq_c = Sequence()
-    is_safe = bool(bankers_c.safetyAlgorithm(n, m, alloc_c, need_c, avail_c, seq_c))
-    safe_seq = [f"P{seq_c[i]}" for i in range(n)] if is_safe else []
+    is_safe = False
+    safe_seq = []
+    if ok and all(a >= 0 for a in available):
+        is_safe = bool(bankers_c.safetyAlgorithm(n, m, alloc_c, need_c, avail_c, seq_c))
+        safe_seq = [f"P{seq_c[i]}" for i in range(n)] if is_safe else []
 
     return need, available, is_safe, safe_seq
+
+if val_errors:
+    for err in val_errors:
+        st.markdown(f'<div class="badge-error">⚠️ {err}</div>', unsafe_allow_html=True)
+    need_mat = [[max(0, st.session_state.maximum[i][j] - st.session_state.allocation[i][j]) for j in range(st.session_state.m)] for i in range(st.session_state.n)]
+    avail_vec = [st.session_state.total[j] - sum(st.session_state.allocation[i][j] for i in range(st.session_state.n)) for j in range(st.session_state.m)]
+    is_safe = False
+    safe_seq = []
+else:
+    need_mat, avail_vec, is_safe, safe_seq = compute_c_state()
 
 # ==============================================================================
 # SVG RESOURCE ALLOCATION GRAPH GENERATOR
 # ==============================================================================
-def generate_rag_svg(n, m, allocation, available, active_proc=None):
+def generate_rag_svg(n, m, allocation, total, available, active_proc=None):
     """Generates a large, clean, high-resolution SVG Resource Allocation Graph."""
     width = 920
     height = max(520, max(n, m) * 65 + 100)
@@ -290,8 +433,8 @@ def generate_rag_svg(n, m, allocation, available, active_proc=None):
         return 100 + j * ((height - 200) / (m - 1))
 
     p_rad = max(24, min(32, 280 / n))
-    r_w = max(80, min(96, 750 / m))
-    r_h = max(46, min(56, 480 / m))
+    r_w = max(86, min(102, 750 / m))
+    r_h = max(50, min(60, 480 / m))
 
     svg_parts = [
         f'<svg viewBox="0 0 {width} {height}" width="100%" height="{height}" xmlns="http://www.w3.org/2000/svg" style="background:#FFFFFF; border-radius:12px;">',
@@ -348,15 +491,21 @@ def generate_rag_svg(n, m, allocation, available, active_proc=None):
         x_left = rx - (r_w / 2)
         y_top = y - (r_h / 2)
         avail = available[j]
+        tot = total[j]
+        alloc_tot = sum(allocation[i][j] for i in range(n))
 
         svg_parts.append(
             f'<rect x="{x_left}" y="{y_top}" width="{r_w}" height="{r_h}" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2.2" filter="url(#nodeShadow)"/>'
         )
         svg_parts.append(
-            f'<text x="{rx}" y="{y - 4}" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="#6D28D9" text-anchor="middle">{f"R{j}"}</text>'
+            f'<text x="{rx}" y="{y - 10}" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="#6D28D9" text-anchor="middle">{f"R{j}"} (Total: {tot})</text>'
         )
         svg_parts.append(
-            f'<text x="{rx}" y="{y + 14}" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#7C3AED" text-anchor="middle">{avail} avail</text>'
+            f'<text x="{rx}" y="{y + 6}" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#2563EB" text-anchor="middle">Alloc: {alloc_tot}</text>'
+        )
+        avail_color = "#059669" if avail >= 0 else "#DC2626"
+        svg_parts.append(
+            f'<text x="{rx}" y="{y + 20}" font-family="Inter, sans-serif" font-size="11" font-weight="700" fill="{avail_color}" text-anchor="middle">Avail: {avail}</text>'
         )
 
     svg_parts.append('</svg>')
@@ -378,62 +527,6 @@ st.markdown("""
     </div>
 </div>
 """, unsafe_allow_html=True)
-
-# Compute live state
-need_mat, avail_vec, is_safe, safe_seq = compute_c_state()
-
-# ==============================================================================
-# SIDEBAR CONFIGURATION (SECTION A: DYNAMIC PROCESS & RESOURCE SETUP)
-# ==============================================================================
-with st.sidebar:
-    st.header("⚙️ System Configuration")
-    st.markdown("Configure system dimensions or select standard benchmarks.")
-
-    selected_preset = st.selectbox("Select Benchmark Preset", list(PRESETS.keys()), index=1)
-    if st.button("Load Preset"):
-        p_data = PRESETS[selected_preset]
-        st.session_state.n = p_data["processes"]
-        st.session_state.m = p_data["resources"]
-        st.session_state.total = list(p_data["total"])
-        st.session_state.allocation = [list(r) for r in p_data["allocation"]]
-        st.session_state.maximum = [list(r) for r in p_data["maximum"]]
-        st.session_state.anim_index = 0
-        st.rerun()
-
-    st.markdown("---")
-    st.subheader("Custom Dimensions")
-    new_n = st.slider("Processes (N)", min_value=1, max_value=MAX_P, value=st.session_state.n)
-    new_m = st.slider("Resource Types (M)", min_value=1, max_value=MAX_R, value=st.session_state.m)
-
-    if new_n != st.session_state.n or new_m != st.session_state.m:
-        if st.button("Apply New Dimensions"):
-            # Resize matrices preserving existing data
-            new_alloc = [[0]*new_m for _ in range(new_n)]
-            new_max = [[2]*new_m for _ in range(new_n)]
-            new_tot = [10]*new_m
-
-            for i in range(min(new_n, st.session_state.n)):
-                for j in range(min(new_m, st.session_state.m)):
-                    new_alloc[i][j] = st.session_state.allocation[i][j]
-                    new_max[i][j] = st.session_state.maximum[i][j]
-
-            for j in range(min(new_m, st.session_state.m)):
-                new_tot[j] = st.session_state.total[j]
-
-            st.session_state.n = new_n
-            st.session_state.m = new_m
-            st.session_state.total = new_tot
-            st.session_state.allocation = new_alloc
-            st.session_state.maximum = new_max
-            st.session_state.anim_index = 0
-            st.rerun()
-
-    st.markdown("---")
-    st.subheader("Total Instances Vector")
-    for j in range(st.session_state.m):
-        st.session_state.total[j] = st.number_input(
-            f"Total R{j}", min_value=0, max_value=99, value=int(st.session_state.total[j]), key=f"tot_in_{j}"
-        )
 
 # ==============================================================================
 # MAIN DASHBOARD TABS & PANELS
@@ -458,7 +551,7 @@ with col_main:
     )
 
     active_p = safe_seq[st.session_state.anim_index] if (safe_seq and st.session_state.anim_index < len(safe_seq)) else None
-    svg_code = generate_rag_svg(st.session_state.n, st.session_state.m, st.session_state.allocation, avail_vec, active_p)
+    svg_code = generate_rag_svg(st.session_state.n, st.session_state.m, st.session_state.allocation, st.session_state.total, avail_vec, active_p)
     st.markdown(f'<div class="graph-card">{svg_code}</div>', unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
@@ -467,7 +560,7 @@ with col_main:
     st.markdown("##### 🎬 Safe Sequence Visual Stepper")
     anim_c1, anim_c2, anim_c3 = st.columns([1, 1, 2])
     with anim_c1:
-        if st.button("▶️ Next Safe Step", disabled=not is_safe):
+        if st.button("▶️ Next Safe Step", disabled=(not is_safe or len(safe_seq) == 0)):
             if st.session_state.anim_index + 1 < len(safe_seq):
                 st.session_state.anim_index += 1
             else:
@@ -481,13 +574,18 @@ with col_main:
         if is_safe and safe_seq:
             curr_step = st.session_state.anim_index + 1
             st.info(f"Step {curr_step} of {len(safe_seq)}: Highlighted executing process **{safe_seq[st.session_state.anim_index]}**")
+        else:
+            st.warning("Animation disabled: No safe sequence exists for the current system state.")
 
 with col_ops:
     # --------------------------------------------------------------------------
     # SECTION I & J: SAFETY CHECK & AUDIT STATUS
     # --------------------------------------------------------------------------
     st.subheader("🛡️ Safety & System Audit")
-    if is_safe:
+    if val_errors:
+        st.markdown(f'<span class="badge-unsafe">CONFIGURATION ERROR</span>', unsafe_allow_html=True)
+        st.error("System configuration is invalid. Please fix errors shown above.")
+    elif is_safe:
         st.markdown(f'<span class="badge-safe">SYSTEM IS SAFE</span>', unsafe_allow_html=True)
         st.success(f"Safe Sequence: {' → '.join(safe_seq)}")
     else:
@@ -512,7 +610,7 @@ with col_ops:
             val = st.number_input(f"Req R{j}", min_value=0, max_value=99, value=0, key=f"req_field_{j}")
             req_vals.append(val)
 
-    if st.button("Submit Request to C Core", type="primary"):
+    if st.button("Submit Request to C Core", type="primary", disabled=bool(val_errors)):
         if all(v == 0 for v in req_vals):
             st.warning("Please enter at least one non-zero request quantity.")
         else:
@@ -525,7 +623,7 @@ with col_ops:
             elif exceeds_avail:
                 st.error("❌ Request Denied: Insufficient Available resources in the system.")
             else:
-                # Call C backend requestResources
+                # Call C backend requestResources with safety check and rollback
                 alloc_c = Matrix()
                 max_c = Matrix()
                 need_c = Matrix()
@@ -570,7 +668,7 @@ with col_ops:
             val = st.number_input(f"Rel R{j}", min_value=0, max_value=99, value=0, key=f"rel_field_{j}")
             rel_vals.append(val)
 
-    if st.button("Release Resources in C Core"):
+    if st.button("Release Resources in C Core", disabled=bool(val_errors)):
         if all(v == 0 for v in rel_vals):
             st.warning("Please enter at least one non-zero release quantity.")
         elif any(rel_vals[j] > st.session_state.allocation[rel_p_idx][j] for j in range(st.session_state.m)):
