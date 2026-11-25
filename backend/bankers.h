@@ -35,6 +35,14 @@ int releaseResources(
     int available[MAX_R]
 );
 
+int detectRAGCycle(
+    int n, int m,
+    int allocation[MAX_P][MAX_R],
+    int request[MAX_P][MAX_R],
+    int cyclePath[MAX_P * 2 + 2],
+    int *cycleLength
+);
+
 int init_preset_3x2(
     int *n, int *m,
     int total[MAX_R],
@@ -53,5 +61,22 @@ int init_preset_6x4(
     int available[MAX_R]
 );
 
-#endif
+int init_preset_single_instance_deadlock(
+    int *n, int *m,
+    int total[MAX_R],
+    int allocation[MAX_P][MAX_R],
+    int maximum[MAX_P][MAX_R],
+    int need[MAX_P][MAX_R],
+    int available[MAX_R]
+);
 
+int init_preset_single_instance_safe(
+    int *n, int *m,
+    int total[MAX_R],
+    int allocation[MAX_P][MAX_R],
+    int maximum[MAX_P][MAX_R],
+    int need[MAX_P][MAX_R],
+    int available[MAX_R]
+);
+
+#endif

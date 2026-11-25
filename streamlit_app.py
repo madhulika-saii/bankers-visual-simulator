@@ -111,6 +111,58 @@ st.markdown("""
         border: 1px solid #DBEAFE;
     }
 
+    /* Algorithm Selection Badges */
+    .badge-algo-rag {
+        background-color: #FEF3C7;
+        color: #92400E;
+        padding: 6px 16px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+        border: 1px solid #FCD34D;
+    }
+    .badge-algo-bankers {
+        background-color: #DBEAFE;
+        color: #1E40AF;
+        padding: 6px 16px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+        border: 1px solid #93C5FD;
+    }
+    .badge-algo-mixed {
+        background-color: #EDE9FE;
+        color: #5B21B6;
+        padding: 6px 16px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+        border: 1px solid #C4B5FD;
+    }
+    .badge-cycle-deadlock {
+        background-color: #FEE2E2;
+        color: #991B1B;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+        border: 1px solid #FCA5A5;
+    }
+    .badge-cycle-safe {
+        background-color: #DCFCE7;
+        color: #15803D;
+        padding: 6px 14px;
+        border-radius: 9999px;
+        font-weight: 700;
+        font-size: 13px;
+        display: inline-block;
+        border: 1px solid #86EFAC;
+    }
+
     /* Primary Buttons */
     div.stButton > button {
         border-radius: 8px;
@@ -123,9 +175,16 @@ st.markdown("""
 # ==============================================================================
 # BACKEND INTEGRATION: C SHARED LIBRARY VIA CTYPES
 # ==============================================================================
+MAX_P = 10
+MAX_R = 10
+Vector = ctypes.c_int * MAX_R
+Matrix = (ctypes.c_int * MAX_R) * MAX_P
+Sequence = ctypes.c_int * MAX_P
+CyclePath = ctypes.c_int * (MAX_P * 2 + 2)
+
 @st.cache_resource
 def get_c_library():
-    """Compiles and loads the C shared library for Banker's Algorithm."""
+    """Compiles and loads the C shared library for Banker's Algorithm and RAG Cycle Detection."""
     base_dir = os.path.dirname(os.path.abspath(__file__))
     src_file = os.path.join(base_dir, "backend", "bankers.c")
 
@@ -157,12 +216,6 @@ def get_c_library():
         st.error(f"Failed to load C shared library ({lib_path}): {e}")
         st.stop()
 
-    MAX_P = 10
-    MAX_R = 10
-    Vector = ctypes.c_int * MAX_R
-    Matrix = (ctypes.c_int * MAX_R) * MAX_P
-    Sequence = ctypes.c_int * MAX_P
-
     bankers.calculateNeed.argtypes = [
         ctypes.c_int, ctypes.c_int, Matrix, Matrix, Matrix
     ]
@@ -183,27 +236,45 @@ def get_c_library():
     ]
     bankers.releaseResources.restype = ctypes.c_int
 
+    bankers.detectRAGCycle.argtypes = [
+        ctypes.c_int, ctypes.c_int, Matrix, Matrix, CyclePath, ctypes.POINTER(ctypes.c_int)
+    ]
+    bankers.detectRAGCycle.restype = ctypes.c_int
+
     return bankers, MAX_P, MAX_R, Vector, Matrix, Sequence
 
 bankers_c, MAX_P, MAX_R, Vector, Matrix, Sequence = get_c_library()
 
 # ==============================================================================
-# BENCHMARK PRESETS (SUPPORTING ANY DYNAMIC DIMENSION)
+# BENCHMARK PRESETS (SUPPORTING ANY DYNAMIC DIMENSION & SINGLE/MULTI INSTANCE)
 # ==============================================================================
 PRESETS = {
-    "3 Processes × 2 Resources": {
-        "processes": 3,
+    "Single-Instance: Deadlock Cycle (2 Processes × 2 Resources)": {
+        "processes": 2,
         "resources": 2,
-        "total": [6, 6],
+        "total": [1, 1],
         "allocation": [
-            [1, 2],
-            [2, 1],
-            [1, 2]
+            [1, 0],
+            [0, 1]
         ],
         "maximum": [
-            [2, 3],
-            [3, 2],
-            [2, 4]
+            [1, 1],
+            [1, 1]
+        ]
+    },
+    "Single-Instance: Safe / No Cycle (3 Processes × 3 Resources)": {
+        "processes": 3,
+        "resources": 3,
+        "total": [1, 1, 1],
+        "allocation": [
+            [1, 0, 0],
+            [0, 1, 0],
+            [0, 0, 0]
+        ],
+        "maximum": [
+            [1, 1, 0],
+            [0, 1, 1],
+            [0, 0, 1]
         ]
     },
     "5 Processes × 3 Resources (Default)": {
@@ -223,6 +294,21 @@ PRESETS = {
             [9, 0, 2],
             [2, 2, 2],
             [4, 3, 3]
+        ]
+    },
+    "3 Processes × 2 Resources": {
+        "processes": 3,
+        "resources": 2,
+        "total": [6, 6],
+        "allocation": [
+            [1, 2],
+            [2, 1],
+            [1, 2]
+        ],
+        "maximum": [
+            [2, 3],
+            [3, 2],
+            [2, 4]
         ]
     },
     "6 Processes × 4 Resources": {
@@ -245,6 +331,21 @@ PRESETS = {
             [2, 1, 2, 2],
             [3, 3, 2, 2]
         ]
+    },
+    "Mixed-Instance: 3 Processes × 3 Resources": {
+        "processes": 3,
+        "resources": 3,
+        "total": [1, 4, 1],
+        "allocation": [
+            [1, 1, 0],
+            [0, 1, 1],
+            [0, 1, 0]
+        ],
+        "maximum": [
+            [1, 2, 0],
+            [0, 2, 1],
+            [0, 2, 0]
+        ]
     }
 }
 
@@ -258,6 +359,7 @@ def validate_system_configuration(n, m, total, allocation, maximum):
     2. Non-negative allocation and maximum.
     3. Maximum >= Allocation for all i, j.
     4. Total[j] >= sum(Allocation[i][j]) for all j (preventing negative available).
+    5. Single-instance capacity bounds (if Total[j] == 1, allocation cannot exceed 1).
     """
     errors = []
 
@@ -302,6 +404,103 @@ def validate_system_configuration(n, m, total, allocation, maximum):
     return errors
 
 # ==============================================================================
+# AUTOMATIC ALGORITHM SELECTION LOGIC
+# ==============================================================================
+def determine_algorithm_mode(total):
+    """
+    Determines algorithm selection based on resource instances:
+    1. Case A (Single-Instance): All Total[j] == 1.
+       -> Use Resource Allocation Graph (RAG) Cycle Detection.
+       -> Cycle is NECESSARY and SUFFICIENT for deadlock.
+    2. Case B (Multiple-Instance): All Total[j] > 1.
+       -> Use Banker's Algorithm for Deadlock Avoidance.
+       -> Cycle is NECESSARY but NOT SUFFICIENT. Banker's safety check required.
+    3. Case C (Mixed-Instance): Some Total[j] == 1, others > 1.
+       -> Use General Banker's Algorithm with RAG structural cycle analysis.
+    """
+    if all(t == 1 for t in total):
+        return {
+            "mode": "SINGLE_INSTANCE",
+            "name": "Resource Allocation Graph (RAG) Cycle Detection",
+            "badge_class": "badge-algo-rag",
+            "reason": (
+                "Every resource type has exactly 1 instance (Total = [1, ...]). "
+                "Under the single-instance resource assumption, a directed cycle in the Resource "
+                "Allocation Graph is a NECESSARY and SUFFICIENT condition for deadlock. "
+                "Cycle detection is therefore the exact, definitive algorithm."
+            ),
+            "math_note": "Single-Instance Invariant: Graph Cycle ⟺ Deadlock (Necessary & Sufficient)."
+        }
+    elif all(t > 1 for t in total):
+        return {
+            "mode": "MULTI_INSTANCE",
+            "name": "Banker's Algorithm (Deadlock Avoidance)",
+            "badge_class": "badge-algo-bankers",
+            "reason": (
+                "Every resource type has multiple instances (Total > 1). "
+                "In multiple-instance systems, a cycle in the RAG is only a NECESSARY condition, "
+                "NOT a sufficient condition for deadlock (processes in a cycle can still proceed if other "
+                "instances are available or released). Therefore, Dijkstra's Banker's Algorithm with "
+                "Work and Finish vectors is required to evaluate safety."
+            ),
+            "math_note": "Multiple-Instance Invariant: Cycle is Necessary but NOT Sufficient. Safety check required."
+        }
+    else:
+        single_types = [f"R{j}" for j, t in enumerate(total) if t == 1]
+        multi_types = [f"R{j} ({t} inst)" for j, t in enumerate(total) if t > 1]
+        return {
+            "mode": "MIXED_INSTANCE",
+            "name": "Banker's Algorithm (General Multi-Instance Mode)",
+            "badge_class": "badge-algo-mixed",
+            "reason": (
+                f"Mixed-instance configuration detected: {', '.join(single_types)} are single-instance, "
+                f"while {', '.join(multi_types)} are multi-instance. "
+                "In Operating Systems theory, whenever any resource type has multiple instances, "
+                "the simple single-instance cycle rule cannot be used as a sufficient condition for deadlock. "
+                "Hence, the mathematically valid General Banker's Algorithm is applied for deadlock avoidance, "
+                "alongside RAG cycle detection for structural graph insight."
+            ),
+            "math_note": "Mixed-Instance Invariant: General Banker's Algorithm guarantees safety across heterogeneous capacities."
+        }
+
+# ==============================================================================
+# C CYCLE DETECTION HELPER
+# ==============================================================================
+def compute_rag_cycle(n, m, allocation, request_matrix):
+    """
+    Executes C detectRAGCycle to find directed cycles in the bipartite RAG.
+    Returns:
+        has_cycle (bool): True if directed cycle found.
+        cycle_labels (list of str): Node path e.g. ['P0', 'R1', 'P1', 'R0', 'P0'].
+        cycle_edges (set of tuples): Edge tuples e.g. {('P0', 'R1'), ('R1', 'P1'), ...}.
+    """
+    alloc_c = Matrix()
+    req_c = Matrix()
+    for i in range(n):
+        for j in range(m):
+            alloc_c[i][j] = int(allocation[i][j])
+            req_c[i][j] = int(request_matrix[i][j])
+
+    c_path = CyclePath()
+    c_len = ctypes.c_int(0)
+    has_cycle = bool(bankers_c.detectRAGCycle(n, m, alloc_c, req_c, c_path, ctypes.byref(c_len)))
+
+    cycle_labels = []
+    cycle_edges = set()
+    if has_cycle and c_len.value > 0:
+        raw_path = [c_path[k] for k in range(c_len.value)]
+        for v in raw_path:
+            if v < n:
+                cycle_labels.append(f"P{v}")
+            else:
+                cycle_labels.append(f"R{v - n}")
+
+        for k in range(len(cycle_labels) - 1):
+            cycle_edges.add((cycle_labels[k], cycle_labels[k + 1]))
+
+    return has_cycle, cycle_labels, cycle_edges
+
+# ==============================================================================
 # SESSION STATE INITIALIZATION
 # ==============================================================================
 if "initialized" not in st.session_state:
@@ -335,9 +534,9 @@ if "graph_pan_y" not in st.session_state:
 # ==============================================================================
 with st.sidebar:
     st.header("⚙️ System Configuration")
-    st.markdown("Configure system dimensions or select standard benchmarks.")
+    st.markdown("Configure system dimensions, instance counts, or select standard benchmarks.")
 
-    selected_preset = st.selectbox("Select Benchmark Preset", list(PRESETS.keys()), index=1)
+    selected_preset = st.selectbox("Select Benchmark Preset", list(PRESETS.keys()), index=2)
     if st.button("Load Preset"):
         p_data = PRESETS[selected_preset]
         st.session_state.n = p_data["processes"]
@@ -352,6 +551,26 @@ with st.sidebar:
         st.session_state.graph_pan_x = 0
         st.session_state.graph_pan_y = 0
         st.rerun()
+
+    st.markdown("---")
+    st.subheader("Resource Instance Mode")
+    col_inst1, col_inst2 = st.columns(2)
+    with col_inst1:
+        if st.button("🔘 Single-Instance (1)", help="Set all resource total capacities to 1 instance"):
+            st.session_state.total = [1] * st.session_state.m
+            for i in range(st.session_state.n):
+                for j in range(st.session_state.m):
+                    st.session_state.allocation[i][j] = min(1, st.session_state.allocation[i][j])
+                    st.session_state.maximum[i][j] = min(1, max(st.session_state.allocation[i][j], st.session_state.maximum[i][j]))
+            st.session_state.pending_request = None
+            st.session_state.request_status = None
+            st.rerun()
+    with col_inst2:
+        if st.button("🔢 Multi-Instance (>1)", help="Set resource total capacities to multiple instances"):
+            st.session_state.total = [max(5, st.session_state.total[j] * 3) for j in range(st.session_state.m)]
+            st.session_state.pending_request = None
+            st.session_state.request_status = None
+            st.rerun()
 
     st.markdown("---")
     st.subheader("Custom Dimensions")
@@ -425,16 +644,13 @@ def compute_c_state():
 
     for j in range(m):
         allocated_j = sum(st.session_state.allocation[i][j] for i in range(n))
-        # Available[j] = Total[j] - sum(Allocation[i][j])
         avail_c[j] = int(st.session_state.total[j]) - allocated_j
 
-    # Compute Need in C: Need = Maximum - Allocation
     ok = bankers_c.calculateNeed(n, m, alloc_c, max_c, need_c)
 
     need = [[need_c[i][j] for j in range(m)] for i in range(n)]
     available = [avail_c[j] for j in range(m)]
 
-    # Run C Safety Algorithm
     seq_c = Sequence()
     is_safe = False
     safe_seq = []
@@ -454,17 +670,40 @@ if val_errors:
 else:
     need_mat, avail_vec, is_safe, safe_seq = compute_c_state()
 
+# Determine Algorithm Mode automatically
+algo_info = determine_algorithm_mode(st.session_state.total)
+mode = algo_info["mode"]
+
+# Prepare effective request matrix for RAG cycle check
+effective_request = [[0] * st.session_state.m for _ in range(st.session_state.n)]
+for i in range(st.session_state.n):
+    for j in range(st.session_state.m):
+        effective_request[i][j] = need_mat[i][j]
+
+if st.session_state.pending_request is not None:
+    p_idx = st.session_state.pending_request.get("proc")
+    p_vals = st.session_state.pending_request.get("values", [])
+    if p_idx is not None and 0 <= p_idx < st.session_state.n:
+        for j in range(min(st.session_state.m, len(p_vals))):
+            effective_request[p_idx][j] = max(effective_request[p_idx][j], p_vals[j])
+
+has_cycle, cycle_labels, cycle_edges = compute_rag_cycle(
+    st.session_state.n, st.session_state.m, st.session_state.allocation, effective_request
+)
+cycle_nodes_set = set(cycle_labels) if has_cycle else set()
+
 # ==============================================================================
-# SVG RESOURCE ALLOCATION GRAPH GENERATOR (SOLID ALLOC & DOTTED REQUEST ARROWS)
+# SVG RESOURCE ALLOCATION GRAPH GENERATOR (SOLID ALLOC, DOTTED REQUEST & CYCLE HIGHLIGHT)
 # ==============================================================================
 def generate_rag_svg(
     n, m, allocation, total, available, active_proc=None,
-    pending_request=None, zoom=1.0, pan_x=0, pan_y=0
+    pending_request=None, zoom=1.0, pan_x=0, pan_y=0,
+    cycle_edges=None, cycle_nodes=None
 ):
     """
     Generates a large, clean, high-resolution SVG Resource Allocation Graph (RAG)
     supporting dynamic dimensions, pan & zoom, distinct solid allocation arrows,
-    and distinct dotted pending request arrows.
+    distinct dotted pending request arrows, and crimson cycle path highlighting.
     """
     width = 960
     height = max(560, max(n, m) * 75 + 130)
@@ -491,12 +730,16 @@ def generate_rag_svg(
     vb_x = ((width - vb_w) / 2) + pan_x
     vb_y = ((height - vb_h) / 2) + pan_y
 
+    cycle_edges = cycle_edges or set()
+    cycle_nodes = cycle_nodes or set()
+
     svg_parts = [
         f'<svg viewBox="{vb_x:.1f} {vb_y:.1f} {vb_w:.1f} {vb_h:.1f}" width="100%" height="{height}" xmlns="http://www.w3.org/2000/svg" style="background:#FFFFFF; border-radius:12px; display:block;">',
         '<defs>',
         '  <style>',
         '    @keyframes flowDashes { from { stroke-dashoffset: 24; } to { stroke-dashoffset: 0; } }',
         '    .rag-req-edge { stroke-dasharray: 7, 5; animation: flowDashes 1.2s linear infinite; }',
+        '    .rag-cycle-edge { stroke-dasharray: none; }',
         '  </style>',
         '  <!-- Blue Arrowhead for Allocation: Resource -> Process -->',
         '  <marker id="allocArrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">',
@@ -505,6 +748,10 @@ def generate_rag_svg(
         '  <!-- Orange Arrowhead for Request: Process -> Resource -->',
         '  <marker id="reqArrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">',
         '    <path d="M0,0 L0,7 L8,3.5 z" fill="#EA580C"/>',
+        '  </marker>',
+        '  <!-- Crimson Arrowhead for Cycle Edges -->',
+        '  <marker id="cycleArrow" markerWidth="10" markerHeight="10" refX="8" refY="3.5" orient="auto">',
+        '    <path d="M0,0 L0,7 L8,3.5 z" fill="#DC2626"/>',
         '  </marker>',
         '  <filter id="nodeShadow" x="-20%" y="-20%" width="140%" height="140%">',
         '    <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0F172A" flood-opacity="0.08"/>',
@@ -524,7 +771,7 @@ def generate_rag_svg(
                 if p_v[j] > 0:
                     pending_vals[j] = p_v[j]
 
-    # 1. Directed Allocation Edges (Resource -> Process, Solid Blue)
+    # 1. Directed Allocation Edges (Resource -> Process)
     for i in range(n):
         for j in range(m):
             qty = allocation[i][j]
@@ -539,23 +786,41 @@ def generate_rag_svg(
             mid_x = (x1 + x2) / 2
             mid_y = (y1 + y2) / 2
 
-            # If this process ALSO has an active request for this resource, curve downwards to avoid collision
+            # Check if this edge is in the detected cycle
+            is_in_cycle = (f"R{j}", f"P{i}") in cycle_edges
+
             has_coexisting_req = (i == pending_proc and pending_vals[j] > 0)
             curve_y = ((i - j) * 6) + (18 if has_coexisting_req else 0)
 
+            if is_in_cycle:
+                stroke_color = "#DC2626"
+                stroke_w = 3.5
+                marker_id = "url(#cycleArrow)"
+                label_color = "#DC2626"
+            else:
+                stroke_color = "#2563EB"
+                stroke_w = 2.5
+                marker_id = "url(#allocArrow)"
+                label_color = "#1D4ED8"
+
             svg_parts.append(
-                f'<path d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="#2563EB" stroke-width="2.5" fill="none" opacity="0.95" marker-end="url(#allocArrow)"/>'
+                f'<path d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="{stroke_color}" stroke-width="{stroke_w}" fill="none" opacity="0.95" marker-end="{marker_id}"/>'
             )
             label_y = mid_y + curve_y + (16 if has_coexisting_req else -7)
             svg_parts.append(
-                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="#1D4ED8" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{qty}</text>'
+                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="{label_color}" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{qty}</text>'
             )
 
-    # 2. Directed Pending Request Edges (Process -> Resource, Dotted/Dashed Orange)
-    if pending_proc is not None:
-        i = pending_proc
+    # 2. Directed Request Edges (Process -> Resource)
+    # Render either active pending request or single-instance cycle/need requests
+    for i in range(n):
         for j in range(m):
-            req_qty = pending_vals[j]
+            req_qty = 0
+            if pending_proc == i and pending_vals[j] > 0:
+                req_qty = pending_vals[j]
+            elif (f"P{i}", f"R{j}") in cycle_edges:
+                req_qty = 1
+
             if req_qty <= 0:
                 continue
 
@@ -567,46 +832,67 @@ def generate_rag_svg(
             mid_x = (x1 + x2) / 2
             mid_y = (y1 + y2) / 2
 
-            # If this process ALSO has an allocation from this resource, curve upwards to separate paths
+            is_in_cycle = (f"P{i}", f"R{j}") in cycle_edges
             has_coexisting_alloc = (allocation[i][j] > 0)
             curve_y = ((i - j) * 6) - (20 if has_coexisting_alloc else 0)
 
+            if is_in_cycle:
+                stroke_color = "#DC2626"
+                stroke_w = 3.5
+                marker_id = "url(#cycleArrow)"
+                label_color = "#DC2626"
+                css_cls = "rag-cycle-edge"
+            else:
+                stroke_color = "#EA580C"
+                stroke_w = 2.6
+                marker_id = "url(#reqArrow)"
+                label_color = "#EA580C"
+                css_cls = "rag-req-edge"
+
             svg_parts.append(
-                f'<path class="rag-req-edge" d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="#EA580C" stroke-width="2.6" fill="none" opacity="0.95" marker-end="url(#reqArrow)"/>'
+                f'<path class="{css_cls}" d="M {x1} {y1} Q {mid_x} {mid_y + curve_y} {x2} {y2}" stroke="{stroke_color}" stroke-width="{stroke_w}" fill="none" opacity="0.95" marker-end="{marker_id}"/>'
             )
             label_y = mid_y + curve_y - (9 if has_coexisting_alloc else 7)
             svg_parts.append(
-                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="#EA580C" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{req_qty} (req)</text>'
+                f'<text x="{mid_x}" y="{label_y}" font-family="Inter, sans-serif" font-size="12" font-weight="700" fill="{label_color}" text-anchor="middle" stroke="#FFFFFF" stroke-width="3" paint-order="stroke">{req_qty} (req)</text>'
             )
 
-    # 3. Process Nodes (Soft Blue)
+    # 3. Process Nodes (Soft Blue / Crimson if in Deadlock Cycle)
     for i in range(n):
         cy = py(i)
         is_highlighted = active_proc == f"P{i}"
         has_pending = pending_proc == i
+        is_in_cycle = f"P{i}" in cycle_nodes
 
-        if is_highlighted:
+        if is_in_cycle:
+            fill_col = "#FEF2F2"
+            stroke_col = "#DC2626"
+            s_width = 3.5
+            label_col = "#991B1B"
+        elif is_highlighted:
             fill_col = "#ECFDF5"
             stroke_col = "#059669"
             s_width = 4
+            label_col = "#059669"
         elif has_pending:
             fill_col = "#FFF7ED"
             stroke_col = "#EA580C"
             s_width = 3.2
+            label_col = "#C2410C"
         else:
             fill_col = "#F0F9FF"
             stroke_col = "#0284C7"
             s_width = 2.5
+            label_col = "#0369A1"
 
         svg_parts.append(
             f'<circle cx="{px}" cy="{cy}" r="{p_rad}" fill="{fill_col}" stroke="{stroke_col}" stroke-width="{s_width}" filter="url(#nodeShadow)"/>'
         )
-        label_col = "#059669" if is_highlighted else ("#C2410C" if has_pending else "#0369A1")
         svg_parts.append(
             f'<text x="{px}" y="{cy + 5}" font-family="Inter, sans-serif" font-size="14" font-weight="700" fill="{label_col}" text-anchor="middle">{f"P{i}"}</text>'
         )
 
-    # 4. Resource Nodes (Soft Violet)
+    # 4. Resource Nodes (Soft Violet / Crimson if in Deadlock Cycle)
     for j in range(m):
         y = ry(j)
         x_left = rx - (r_w / 2)
@@ -614,53 +900,74 @@ def generate_rag_svg(
         avail = available[j]
         tot = total[j]
         alloc_tot = sum(allocation[i][j] for i in range(n))
+        is_in_cycle = f"R{j}" in cycle_nodes
+
+        if is_in_cycle:
+            r_fill = "#FEF2F2"
+            r_stroke = "#DC2626"
+            r_swidth = 3.0
+            r_txt = "#991B1B"
+        else:
+            r_fill = "#F5F3FF"
+            r_stroke = "#7C3AED"
+            r_swidth = 2.2
+            r_txt = "#6D28D9"
 
         svg_parts.append(
-            f'<rect x="{x_left}" y="{y_top}" width="{r_w}" height="{r_h}" rx="10" fill="#F5F3FF" stroke="#7C3AED" stroke-width="2.2" filter="url(#nodeShadow)"/>'
+            f'<rect x="{x_left}" y="{y_top}" width="{r_w}" height="{r_h}" rx="10" fill="{r_fill}" stroke="{r_stroke}" stroke-width="{r_swidth}" filter="url(#nodeShadow)"/>'
         )
         svg_parts.append(
-            f'<text x="{rx}" y="{y - 10}" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="#6D28D9" text-anchor="middle">{f"R{j}"} (Total: {tot})</text>'
+            f'<text x="{rx}" y="{y - 10}" font-family="Inter, sans-serif" font-size="13" font-weight="700" fill="{r_txt}" text-anchor="middle">{f"R{j}"} (Total: {tot})</text>'
         )
         svg_parts.append(
             f'<text x="{rx}" y="{y + 6}" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#2563EB" text-anchor="middle">Alloc: {alloc_tot}</text>'
         )
-        avail_color = "#059669" if avail >= 0 else "#DC2626"
+        avail_color = "#DC2626" if avail < 0 else ("#059669" if avail > 0 else "#64748B")
         svg_parts.append(
             f'<text x="{rx}" y="{y + 20}" font-family="Inter, sans-serif" font-size="11" font-weight="700" fill="{avail_color}" text-anchor="middle">Avail: {avail}</text>'
         )
 
     # 5. Integrated SVG Legend at Bottom
     leg_y = height - 44
+    leg_w = 780 if not cycle_edges else 920
     svg_parts.append(
-        f'<g transform="translate({(width / 2) - 370}, {leg_y})">'
-        f'<rect x="0" y="0" width="740" height="34" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.2"/>'
-        # Allocation Legend Item
-        f'<line x1="20" y1="17" x2="65" y2="17" stroke="#2563EB" stroke-width="2.5" marker-end="url(#allocArrow)"/>'
-        f'<text x="75" y="21" font-family="Inter, sans-serif" font-size="12" font-weight="600" fill="#1E293B">Allocation (Resource → Process)</text>'
-        # Request Legend Item
-        f'<line x1="315" y1="17" x2="360" y2="17" stroke="#EA580C" stroke-width="2.6" stroke-dasharray="6,4" marker-end="url(#reqArrow)"/>'
-        f'<text x="370" y="21" font-family="Inter, sans-serif" font-size="12" font-weight="600" fill="#1E293B">Active Request (Process → Resource)</text>'
-        # Process Node
-        f'<circle cx="630" cy="17" r="7" fill="#F0F9FF" stroke="#0284C7" stroke-width="2"/>'
-        f'<text x="644" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#0369A1">Process</text>'
-        # Resource Node
-        f'<rect x="692" y="11" width="12" height="12" rx="3" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.8"/>'
-        f'<text x="709" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#6D28D9">Res</text>'
-        f'</g>'
+        f'<g transform="translate({(width / 2) - (leg_w / 2)}, {leg_y})">'
+        f'<rect x="0" y="0" width="{leg_w}" height="34" rx="8" fill="#F8FAFC" stroke="#E2E8F0" stroke-width="1.2"/>'
+        f'<line x1="20" y1="17" x2="60" y2="17" stroke="#2563EB" stroke-width="2.5" marker-end="url(#allocArrow)"/>'
+        f'<text x="68" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#1E293B">Allocation (Resource → Process)</text>'
+        f'<line x1="270" y1="17" x2="310" y2="17" stroke="#EA580C" stroke-width="2.6" stroke-dasharray="6,4" marker-end="url(#reqArrow)"/>'
+        f'<text x="318" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#1E293B">Active Request (Process → Resource)</text>'
     )
 
-    svg_parts.append('</svg>')
+    if cycle_edges:
+        svg_parts.append(
+            f'<line x1="535" y1="17" x2="570" y2="17" stroke="#DC2626" stroke-width="3" marker-end="url(#cycleArrow)"/>'
+            f'<text x="576" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="700" fill="#DC2626">Deadlock Cycle</text>'
+            f'<circle cx="680" cy="17" r="6" fill="#F0F9FF" stroke="#0284C7" stroke-width="1.8"/>'
+            f'<text x="692" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#0369A1">Process</text>'
+            f'<rect x="745" y="11" width="12" height="12" rx="3" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.8"/>'
+            f'<text x="763" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#6D28D9">Res</text>'
+        )
+    else:
+        svg_parts.append(
+            f'<circle cx="560" cy="17" r="6" fill="#F0F9FF" stroke="#0284C7" stroke-width="1.8"/>'
+            f'<text x="572" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#0369A1">Process</text>'
+            f'<rect x="635" y="11" width="12" height="12" rx="3" fill="#F5F3FF" stroke="#7C3AED" stroke-width="1.8"/>'
+            f'<text x="653" y="21" font-family="Inter, sans-serif" font-size="11" font-weight="600" fill="#6D28D9">Res</text>'
+        )
+
+    svg_parts.append('</g></svg>')
     return "".join(svg_parts)
 
 # ==============================================================================
-# HEADER
+# TOP HEADER
 # ==============================================================================
 st.markdown("""
 <div class="header-box">
     <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
         <div>
-            <h1 class="header-title">Banker's Algorithm Simulator</h1>
-            <p class="header-subtitle">Interactive Deadlock Avoidance, Real-Time C Core Execution & Resource Allocation Graph</p>
+            <h1 class="header-title">Banker's Algorithm & Resource Allocation Graph Simulator</h1>
+            <p class="header-subtitle">Dual-Mode Operating Systems Engine: Automatic Algorithm Selection, C Core Safety & RAG Cycle Detection</p>
         </div>
         <div>
             <span class="badge-info">C Backend Engine (ctypes)</span>
@@ -670,13 +977,48 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# MAIN DASHBOARD TABS & PANELS
+# SECTION: AUTOMATIC ALGORITHM SELECTION
+# ==============================================================================
+inst_summary_items = [f"R{j}: {st.session_state.total[j]}" for j in range(st.session_state.m)]
+inst_summary_str = " | ".join(inst_summary_items)
+
+st.markdown(f"""
+<div class="saas-card" style="border-left: 6px solid #2563EB; margin-bottom: 24px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 12px;">
+        <div>
+            <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; color: #64748B;">Algorithm Selection Engine</span>
+            <h3 style="margin: 2px 0 0 0; font-size: 20px; font-weight: 700; color: #0F172A;">
+                {algo_info['name']}
+            </h3>
+        </div>
+        <div>
+            <span class="{algo_info['badge_class']}">{algo_info['mode'].replace('_', ' ')}</span>
+        </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-bottom: 14px;">
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Configured Resource Instances</div>
+            <div style="font-size: 14px; font-weight: 600; color: #1E293B; margin-top: 4px;"><code>[ {inst_summary_str} ]</code></div>
+        </div>
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
+            <div style="font-size: 11px; font-weight: 700; color: #64748B; text-transform: uppercase;">Theoretical Invariant</div>
+            <div style="font-size: 13px; font-style: italic; color: #334155; margin-top: 4px;">{algo_info['math_note']}</div>
+        </div>
+    </div>
+    <div style="font-size: 13.5px; color: #334155; line-height: 1.6;">
+        <b>Selection Rationale:</b> {algo_info['reason']}
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+# ==============================================================================
+# MAIN DASHBOARD PANELS
 # ==============================================================================
 col_main, col_ops = st.columns([2, 1], gap="large")
 
 with col_main:
     # --------------------------------------------------------------------------
-    # SECTION B: RESOURCE ALLOCATION GRAPH (HERO)
+    # RESOURCE ALLOCATION GRAPH (HERO)
     # --------------------------------------------------------------------------
     st.subheader("📊 Resource Allocation Graph (RAG)")
     st.markdown(
@@ -686,8 +1028,13 @@ with col_main:
             <span>🟣 <b>Resources:</b> R0..R{m}</span>
             <span><b style="color:#2563EB;">──► Allocation:</b> Solid Blue (Resource → Process)</span>
             <span><b style="color:#EA580C;">┄┄► Request:</b> Dotted Orange (Process → Resource)</span>
+            {cycle_legend_span}
         </div>
-        """.format(n=st.session_state.n-1, m=st.session_state.m-1),
+        """.format(
+            n=st.session_state.n - 1,
+            m=st.session_state.m - 1,
+            cycle_legend_span='<span><b style="color:#DC2626;">──► Deadlock Cycle:</b> Critical Path</span>' if has_cycle else ""
+        ),
         unsafe_allow_html=True
     )
 
@@ -737,53 +1084,87 @@ with col_main:
         pending_request=st.session_state.pending_request,
         zoom=st.session_state.graph_zoom,
         pan_x=st.session_state.graph_pan_x,
-        pan_y=st.session_state.graph_pan_y
+        pan_y=st.session_state.graph_pan_y,
+        cycle_edges=cycle_edges if mode == "SINGLE_INSTANCE" else None,
+        cycle_nodes=cycle_nodes_set if mode == "SINGLE_INSTANCE" else None
     )
     st.markdown(f'<div class="graph-card">{svg_code}</div>', unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
-    # SAFE SEQUENCE ANIMATION CONTROLS
+    # VISUAL STEPPER / CYCLE DETAILS
     # --------------------------------------------------------------------------
-    st.markdown("##### 🎬 Safe Sequence Visual Stepper")
-    anim_c1, anim_c2, anim_c3 = st.columns([1, 1, 2])
-    with anim_c1:
-        if st.button("▶️ Next Safe Step", disabled=(not is_safe or len(safe_seq) == 0)):
-            if st.session_state.anim_index + 1 < len(safe_seq):
-                st.session_state.anim_index += 1
-            else:
-                st.session_state.anim_index = 0
-            st.rerun()
-    with anim_c2:
-        if st.button("🔄 Reset Animation"):
-            st.session_state.anim_index = 0
-            st.rerun()
-    with anim_c3:
-        if is_safe and safe_seq:
-            curr_step = st.session_state.anim_index + 1
-            st.info(f"Step {curr_step} of {len(safe_seq)}: Highlighted executing process **{safe_seq[st.session_state.anim_index]}**")
+    if mode == "SINGLE_INSTANCE":
+        st.markdown("##### 🔍 Single-Instance Analysis Details")
+        if has_cycle:
+            st.error(f"🔴 **Cycle Path Detected:** {' → '.join(cycle_labels)}")
+            st.markdown(
+                "Under the single-instance resource model, this directed cycle proves that a "
+                "circular wait exists among the processes involved. None of these processes can ever release "
+                "their resources, producing permanent deadlock."
+            )
         else:
-            st.warning("Animation disabled: No safe sequence exists for the current system state.")
+            st.success("🟢 **Acyclic Graph Confirmed:** No directed cycles exist.")
+            st.markdown(
+                "Because every resource type has 1 instance and no cycle exists in the graph, "
+                "the system is guaranteed to be deadlock-free."
+            )
+    else:
+        st.markdown("##### 🎬 Safe Sequence Visual Stepper")
+        anim_c1, anim_c2, anim_c3 = st.columns([1, 1, 2])
+        with anim_c1:
+            if st.button("▶️ Next Safe Step", disabled=(not is_safe or len(safe_seq) == 0)):
+                if st.session_state.anim_index + 1 < len(safe_seq):
+                    st.session_state.anim_index += 1
+                else:
+                    st.session_state.anim_index = 0
+                st.rerun()
+        with anim_c2:
+            if st.button("🔄 Reset Animation"):
+                st.session_state.anim_index = 0
+                st.rerun()
+        with anim_c3:
+            if is_safe and safe_seq:
+                curr_step = st.session_state.anim_index + 1
+                st.info(f"Step {curr_step} of {len(safe_seq)}: Highlighted executing process **{safe_seq[st.session_state.anim_index]}**")
+            else:
+                st.warning("Animation disabled: No safe sequence exists for the current system state.")
 
 with col_ops:
     # --------------------------------------------------------------------------
-    # SECTION I & J: SAFETY CHECK & AUDIT STATUS
+    # SYSTEM AUDIT & SAFETY STATUS
     # --------------------------------------------------------------------------
     st.subheader("🛡️ Safety & System Audit")
+
     if val_errors:
         st.markdown(f'<span class="badge-unsafe">CONFIGURATION ERROR</span>', unsafe_allow_html=True)
         st.error("System configuration is invalid. Please fix errors shown above.")
-    elif is_safe:
-        st.markdown(f'<span class="badge-safe">SYSTEM IS SAFE</span>', unsafe_allow_html=True)
-        st.success(f"Safe Sequence: {' → '.join(safe_seq)}")
+    elif mode == "SINGLE_INSTANCE":
+        if has_cycle:
+            st.markdown(f'<span class="badge-cycle-deadlock">❌ DEADLOCK DETECTED</span>', unsafe_allow_html=True)
+            st.error(f"Cycle in RAG: {' → '.join(cycle_labels)}")
+            st.markdown("**Cycle = Deadlock** (Single-Instance Rule)")
+        else:
+            st.markdown(f'<span class="badge-cycle-safe">✅ NO DEADLOCK</span>', unsafe_allow_html=True)
+            st.success("Resource Allocation Graph is acyclic. System is safe.")
     else:
-        st.markdown(f'<span class="badge-unsafe">DEADLOCK RISK (UNSAFE)</span>', unsafe_allow_html=True)
-        st.error("No safe execution sequence exists. Any further allocation risks deadlock.")
+        if is_safe:
+            st.markdown(f'<span class="badge-safe">SYSTEM IS SAFE</span>', unsafe_allow_html=True)
+            st.success(f"Safe Sequence: {' → '.join(safe_seq)}")
+        else:
+            st.markdown(f'<span class="badge-unsafe">DEADLOCK RISK (UNSAFE)</span>', unsafe_allow_html=True)
+            st.error("No safe execution sequence exists. Any further allocation risks deadlock.")
+
+        if mode == "MIXED_INSTANCE":
+            if has_cycle:
+                st.warning(f"⚠️ Topological Cycle in RAG: {' → '.join(cycle_labels)} (Note: Cycle is necessary but not sufficient in mixed mode).")
+            else:
+                st.info("Topological RAG is acyclic.")
 
     st.markdown(f"**Available Resources Vector (Work):** `[ {' | '.join(str(x) for x in avail_vec)} ]`")
     st.markdown("---")
 
     # --------------------------------------------------------------------------
-    # SECTION G: RESOURCE REQUEST OPERATION
+    # SUBMIT RESOURCE REQUEST
     # --------------------------------------------------------------------------
     st.subheader("📥 Submit Resource Request")
     proc_labels = [f"P{i}" for i in range(st.session_state.n)]
@@ -834,8 +1215,15 @@ with col_ops:
             if all(v == 0 for v in req_vals):
                 st.warning("Please enter at least one non-zero request quantity.")
             else:
-                # Stage as active pending request
                 st.session_state.pending_request = {"proc": req_p_idx, "values": list(req_vals)}
+
+                # Single-Instance specific validation: request cannot exceed 1
+                if mode == "SINGLE_INSTANCE" and any(req_vals[j] > 1 for j in range(st.session_state.m)):
+                    st.session_state.request_status = {
+                        "type": "error",
+                        "msg": "❌ Request Denied: In single-instance mode, request quantity cannot exceed 1."
+                    }
+                    st.rerun()
 
                 # Check Need
                 exceeds_need = any(req_vals[j] > need_mat[req_p_idx][j] for j in range(st.session_state.m))
@@ -854,48 +1242,75 @@ with col_ops:
                     }
                     st.rerun()
                 else:
-                    # Call C backend requestResources with safety check and rollback
-                    alloc_c = Matrix()
-                    max_c = Matrix()
-                    need_c = Matrix()
-                    avail_c = Vector()
-                    req_c = Vector()
-
-                    for i in range(st.session_state.n):
+                    # In single-instance mode, check if granting the request creates a cycle
+                    if mode == "SINGLE_INSTANCE":
+                        # Tentative allocation test
+                        tentative_alloc = [list(r) for r in st.session_state.allocation]
+                        tentative_req = [list(r) for r in need_mat]
                         for j in range(st.session_state.m):
-                            alloc_c[i][j] = int(st.session_state.allocation[i][j])
-                            max_c[i][j] = int(st.session_state.maximum[i][j])
-                            need_c[i][j] = int(need_mat[i][j])
+                            tentative_alloc[req_p_idx][j] += req_vals[j]
+                            tentative_req[req_p_idx][j] = max(0, tentative_req[req_p_idx][j] - req_vals[j])
 
-                    for j in range(st.session_state.m):
-                        avail_c[j] = int(avail_vec[j])
-                        req_c[j] = int(req_vals[j])
-
-                    granted = bankers_c.requestResources(
-                        req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
-                    )
-
-                    if granted:
-                        for j in range(st.session_state.m):
-                            st.session_state.allocation[req_p_idx][j] += req_vals[j]
-                        # Remove pending request edge on grant
-                        st.session_state.pending_request = None
-                        st.session_state.request_status = {
-                            "type": "success",
-                            "msg": f"✅ Request Granted to {req_proc} by C Core! Allocation state updated, pending request edge removed."
-                        }
-                        st.rerun()
+                        tent_cycle, tent_path, _ = compute_rag_cycle(
+                            st.session_state.n, st.session_state.m, tentative_alloc, tentative_req
+                        )
+                        if tent_cycle:
+                            st.session_state.request_status = {
+                                "type": "error",
+                                "msg": f"❌ Request Denied for {req_proc}: Allocation creates directed cycle ({' → '.join(tent_path)}), resulting in deadlock! Rolled back."
+                            }
+                            st.rerun()
+                        else:
+                            for j in range(st.session_state.m):
+                                st.session_state.allocation[req_p_idx][j] += req_vals[j]
+                            st.session_state.pending_request = None
+                            st.session_state.request_status = {
+                                "type": "success",
+                                "msg": f"✅ Request Granted to {req_proc}! Single-instance RAG remains acyclic and safe."
+                            }
+                            st.rerun()
                     else:
-                        st.session_state.request_status = {
-                            "type": "error",
-                            "msg": f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state (Deadlock Risk). C algorithm rolled back."
-                        }
-                        st.rerun()
+                        # Multi-instance / Mixed: Call C backend requestResources with safety check and rollback
+                        alloc_c = Matrix()
+                        max_c = Matrix()
+                        need_c = Matrix()
+                        avail_c = Vector()
+                        req_c = Vector()
+
+                        for i in range(st.session_state.n):
+                            for j in range(st.session_state.m):
+                                alloc_c[i][j] = int(st.session_state.allocation[i][j])
+                                max_c[i][j] = int(st.session_state.maximum[i][j])
+                                need_c[i][j] = int(need_mat[i][j])
+
+                        for j in range(st.session_state.m):
+                            avail_c[j] = int(avail_vec[j])
+                            req_c[j] = int(req_vals[j])
+
+                        granted = bankers_c.requestResources(
+                            req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
+                        )
+
+                        if granted:
+                            for j in range(st.session_state.m):
+                                st.session_state.allocation[req_p_idx][j] += req_vals[j]
+                            st.session_state.pending_request = None
+                            st.session_state.request_status = {
+                                "type": "success",
+                                "msg": f"✅ Request Granted to {req_proc} by C Core! Allocation state updated, pending request edge removed."
+                            }
+                            st.rerun()
+                        else:
+                            st.session_state.request_status = {
+                                "type": "error",
+                                "msg": f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state (Deadlock Risk). C algorithm rolled back."
+                            }
+                            st.rerun()
 
     st.markdown("---")
 
     # --------------------------------------------------------------------------
-    # SECTION H: RESOURCE RELEASE OPERATION
+    # RELEASE RESOURCES
     # --------------------------------------------------------------------------
     st.subheader("📤 Release Resources")
     rel_proc = st.selectbox("Releasing Process", proc_labels, index=0, key="rel_p_sel")
@@ -927,7 +1342,7 @@ with col_ops:
 # SECTION D, E, F: MATRICES
 # ==============================================================================
 st.markdown("---")
-st.subheader("📋 System Resource Matrices (Calculated via C Core)")
+st.subheader("📋 System Resource Matrices")
 
 mat_col1, mat_col2, mat_col3 = st.columns(3)
 
@@ -945,12 +1360,12 @@ with mat_col2:
     st.dataframe(df_max, use_container_width=True)
 
 with mat_col3:
-    st.markdown("##### Need Matrix (Max - Allocation)")
+    st.markdown("##### Need / Request Matrix (Max - Allocation)")
     df_need = pd.DataFrame(need_mat, index=p_indices, columns=r_labels)
     st.dataframe(df_need, use_container_width=True)
 
 st.markdown("""
 <div style="text-align: center; color: #94A3B8; font-size: 12px; margin-top: 40px; border-top: 1px solid #E2E8F0; padding-top: 16px;">
-    Operating Systems Project • Banker's Algorithm Simulation • Light Theme SaaS Edition
+    Operating Systems Project • Dual-Mode Banker's Algorithm & RAG Cycle Detector • SaaS Edition
 </div>
 """, unsafe_allow_html=True)

@@ -291,15 +291,21 @@ class FinalReleaseAudit15Tests(unittest.TestCase):
         self.assertEqual(res_status.returncode, 0)
         self.assertIn("Your branch is up to date with 'origin/main'", res_status.stdout)
 
-        res_log = subprocess.run(
-            ["git", "log", "-n", "1", "--format=%H %s"],
+        res_rev_local = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
             cwd=PROJECT_ROOT,
             capture_output=True,
             text=True
         )
-        self.assertEqual(res_log.returncode, 0)
-        # Latest commit must be b2b4664...
-        self.assertTrue(res_log.stdout.startswith("b2b4664"), "Local head must match pushed remote commit b2b4664")
+        res_rev_remote = subprocess.run(
+            ["git", "rev-parse", "origin/main"],
+            cwd=PROJECT_ROOT,
+            capture_output=True,
+            text=True
+        )
+        self.assertEqual(res_rev_local.returncode, 0)
+        self.assertEqual(res_rev_remote.returncode, 0)
+        self.assertEqual(res_rev_local.stdout.strip(), res_rev_remote.stdout.strip(), "Local head must match pushed remote origin/main")
 
     def test_15_public_streamlit_url_responsiveness(self):
         """15. Verify public Streamlit Community Cloud URL is active and reachable"""
@@ -312,6 +318,51 @@ class FinalReleaseAudit15Tests(unittest.TestCase):
         # Streamlit Community Cloud server header check
         self.assertIn("server: nginx", curl_res.stdout.lower(), "Streamlit Cloud Nginx edge router responded")
         self.assertIn("303", curl_res.stdout, "App is active and serving via Streamlit Cloud auth gateway")
+
+    def test_16_automatic_algorithm_selection_modes(self):
+        """16. Verify Automatic Algorithm Selection: Single-Instance RAG vs Multi-Instance Banker's vs Mixed-Instance"""
+        # Case A: Single-Instance (all total = 1)
+        mode_a = streamlit_app.determine_algorithm_mode([1, 1, 1])
+        self.assertEqual(mode_a["mode"], "SINGLE_INSTANCE")
+        self.assertIn("Resource Allocation Graph (RAG) Cycle Detection", mode_a["name"])
+        self.assertIn("Deadlock", mode_a["math_note"])
+        self.assertIn("Necessary & Sufficient", mode_a["math_note"])
+
+        # Case B: Multi-Instance (all total > 1)
+        mode_b = streamlit_app.determine_algorithm_mode([10, 5, 7])
+        self.assertEqual(mode_b["mode"], "MULTI_INSTANCE")
+        self.assertIn("Banker's Algorithm", mode_b["name"])
+        self.assertIn("Necessary but NOT Sufficient", mode_b["math_note"])
+        self.assertIn("Work and Finish", mode_b["reason"])
+
+        # Case C: Mixed-Instance (some total = 1, some > 1)
+        mode_c = streamlit_app.determine_algorithm_mode([1, 5, 1])
+        self.assertEqual(mode_c["mode"], "MIXED_INSTANCE")
+        self.assertIn("Banker's Algorithm (General Multi-Instance Mode)", mode_c["name"])
+        self.assertIn("General Banker's Algorithm guarantees safety", mode_c["math_note"])
+
+    def test_17_single_instance_rag_cycle_deadlock_detection(self):
+        """17. Verify RAG Cycle Detection in C backend correctly detects deadlock cycle and highlights path"""
+        # 2x2 cycle: P0 holds R0, requests R1; P1 holds R1, requests R0
+        alloc = [[1, 0], [0, 1]]
+        req = [[0, 1], [1, 0]]
+        has_cycle, cycle_labels, cycle_edges = streamlit_app.compute_rag_cycle(2, 2, alloc, req)
+        self.assertTrue(has_cycle)
+        self.assertGreater(len(cycle_labels), 2)
+        self.assertEqual(cycle_labels[0], cycle_labels[-1], "Cycle path must be closed loop")
+        self.assertIn(("P0", "R1"), cycle_edges)
+        self.assertIn(("R1", "P1"), cycle_edges)
+        self.assertIn(("P1", "R0"), cycle_edges)
+        self.assertIn(("R0", "P0"), cycle_edges)
+
+        # SVG representation should highlight cycle edges with red stroke (#DC2626) and cycle nodes
+        total = [1, 1]
+        avail = [0, 0]
+        cycle_nodes = set(cycle_labels)
+        svg = streamlit_app.generate_rag_svg(2, 2, alloc, total, avail, cycle_edges=cycle_edges, cycle_nodes=cycle_nodes)
+        self.assertIn('stroke="#DC2626"', svg)
+        self.assertIn('marker id="cycleArrow"', svg)
+        self.assertIn('Deadlock Cycle', svg)
 
 if __name__ == "__main__":
     unittest.main()
