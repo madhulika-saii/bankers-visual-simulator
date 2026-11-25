@@ -335,16 +335,16 @@ PRESETS = {
     "Mixed-Instance: 3 Processes × 3 Resources": {
         "processes": 3,
         "resources": 3,
-        "total": [1, 4, 1],
+        "total": [10, 5, 1],
         "allocation": [
-            [1, 1, 0],
-            [0, 1, 1],
-            [0, 1, 0]
+            [3, 1, 0],
+            [2, 1, 1],
+            [2, 1, 0]
         ],
         "maximum": [
-            [1, 2, 0],
-            [0, 2, 1],
-            [0, 2, 0]
+            [3, 2, 0],
+            [3, 2, 1],
+            [4, 2, 0]
         ]
     }
 }
@@ -450,7 +450,7 @@ def determine_algorithm_mode(total):
         multi_types = [f"R{j} ({t} inst)" for j, t in enumerate(total) if t > 1]
         return {
             "mode": "MIXED_INSTANCE",
-            "name": "Banker's Algorithm (General Multi-Instance Mode)",
+            "name": "General Banker's Safety Algorithm",
             "badge_class": "badge-algo-mixed",
             "reason": (
                 f"Mixed-instance configuration detected: {', '.join(single_types)} are single-instance, "
@@ -501,18 +501,49 @@ def compute_rag_cycle(n, m, allocation, request_matrix):
     return has_cycle, cycle_labels, cycle_edges
 
 # ==============================================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE INITIALIZATION & SYNCHRONIZATION HELPERS
 # ==============================================================================
-if "initialized" not in st.session_state:
-    preset = PRESETS["5 Processes × 3 Resources (Default)"]
-    st.session_state.n = preset["processes"]
-    st.session_state.m = preset["resources"]
-    st.session_state.total = list(preset["total"])
-    st.session_state.allocation = [list(r) for r in preset["allocation"]]
-    st.session_state.maximum = [list(r) for r in preset["maximum"]]
+MODE_SINGLE_LABEL = "Single-Instance (Total = 1)"
+MODE_MULTI_LABEL = "Multiple-Instance (Total > 1)"
+MODE_MIXED_LABEL = "Mixed-Instance (Heterogeneous)"
+RADIO_OPTIONS = [MODE_SINGLE_LABEL, MODE_MULTI_LABEL, MODE_MIXED_LABEL]
+
+def get_radio_label_for_total(total):
+    m_info = determine_algorithm_mode(total)
+    if m_info["mode"] == "SINGLE_INSTANCE":
+        return MODE_SINGLE_LABEL
+    elif m_info["mode"] == "MULTI_INSTANCE":
+        return MODE_MULTI_LABEL
+    else:
+        return MODE_MIXED_LABEL
+
+def apply_preset(preset_name):
+    if preset_name not in PRESETS:
+        return
+    p_data = PRESETS[preset_name]
+    st.session_state.n = p_data["processes"]
+    st.session_state.m = p_data["resources"]
+    st.session_state.total = list(p_data["total"])
+    st.session_state.allocation = [list(r) for r in p_data["allocation"]]
+    st.session_state.maximum = [list(r) for r in p_data["maximum"]]
     st.session_state.anim_index = 0
     st.session_state.pending_request = None
     st.session_state.request_status = None
+    st.session_state.selected_preset = preset_name
+
+    # Explicitly synchronize widget state keys so Streamlit input widgets display new preset values
+    for j in range(MAX_R):
+        if j < st.session_state.m:
+            st.session_state[f"tot_in_{j}"] = int(p_data["total"][j])
+        else:
+            st.session_state.pop(f"tot_in_{j}", None)
+        st.session_state[f"req_field_{j}"] = 0
+        st.session_state[f"rel_field_{j}"] = 0
+
+    st.session_state.instance_mode_radio = get_radio_label_for_total(p_data["total"])
+
+if "initialized" not in st.session_state:
+    apply_preset("5 Processes × 3 Resources (Default)")
     st.session_state.graph_zoom = 1.0
     st.session_state.graph_pan_x = 0
     st.session_state.graph_pan_y = 0
@@ -528,6 +559,8 @@ if "graph_pan_x" not in st.session_state:
     st.session_state.graph_pan_x = 0
 if "graph_pan_y" not in st.session_state:
     st.session_state.graph_pan_y = 0
+if "selected_preset" not in st.session_state:
+    st.session_state.selected_preset = "5 Processes × 3 Resources (Default)"
 
 # ==============================================================================
 # SIDEBAR CONFIGURATION (SECTION A: DYNAMIC PROCESS & RESOURCE SETUP)
@@ -536,41 +569,45 @@ with st.sidebar:
     st.header("⚙️ System Configuration")
     st.markdown("Configure system dimensions, instance counts, or select standard benchmarks.")
 
-    selected_preset = st.selectbox("Select Benchmark Preset", list(PRESETS.keys()), index=2)
-    if st.button("Load Preset"):
-        p_data = PRESETS[selected_preset]
-        st.session_state.n = p_data["processes"]
-        st.session_state.m = p_data["resources"]
-        st.session_state.total = list(p_data["total"])
-        st.session_state.allocation = [list(r) for r in p_data["allocation"]]
-        st.session_state.maximum = [list(r) for r in p_data["maximum"]]
-        st.session_state.anim_index = 0
-        st.session_state.pending_request = None
-        st.session_state.request_status = None
-        st.session_state.graph_zoom = 1.0
-        st.session_state.graph_pan_x = 0
-        st.session_state.graph_pan_y = 0
+    preset_list = list(PRESETS.keys())
+    curr_preset = st.session_state.get("selected_preset", "5 Processes × 3 Resources (Default)")
+    curr_preset_idx = preset_list.index(curr_preset) if curr_preset in preset_list else 2
+
+    chosen_preset = st.selectbox(
+        "Select Benchmark Preset",
+        preset_list,
+        index=curr_preset_idx,
+        key="preset_selector"
+    )
+
+    if st.button("Load Preset", key="btn_load_preset"):
+        apply_preset(chosen_preset)
         st.rerun()
 
     st.markdown("---")
     st.subheader("Resource Instance Mode")
-    col_inst1, col_inst2 = st.columns(2)
-    with col_inst1:
-        if st.button("🔘 Single-Instance (1)", help="Set all resource total capacities to 1 instance"):
-            st.session_state.total = [1] * st.session_state.m
-            for i in range(st.session_state.n):
-                for j in range(st.session_state.m):
-                    st.session_state.allocation[i][j] = min(1, st.session_state.allocation[i][j])
-                    st.session_state.maximum[i][j] = min(1, max(st.session_state.allocation[i][j], st.session_state.maximum[i][j]))
-            st.session_state.pending_request = None
-            st.session_state.request_status = None
-            st.rerun()
-    with col_inst2:
-        if st.button("🔢 Multi-Instance (>1)", help="Set resource total capacities to multiple instances"):
-            st.session_state.total = [max(5, st.session_state.total[j] * 3) for j in range(st.session_state.m)]
-            st.session_state.pending_request = None
-            st.session_state.request_status = None
-            st.rerun()
+
+    # Radio button synchronized with ground-truth resource capacities
+    expected_radio = get_radio_label_for_total(st.session_state.total)
+    radio_idx = RADIO_OPTIONS.index(expected_radio)
+
+    selected_radio = st.radio(
+        "Algorithm & Instance Mode",
+        RADIO_OPTIONS,
+        index=radio_idx,
+        key="instance_mode_radio_selector",
+        help="Synchronizes total capacities, algorithm selection, and presets without contradiction."
+    )
+
+    # When the user toggles the radio button directly:
+    if selected_radio != expected_radio:
+        if selected_radio == MODE_SINGLE_LABEL:
+            apply_preset("Single-Instance: Safe / No Cycle (3 Processes × 3 Resources)")
+        elif selected_radio == MODE_MULTI_LABEL:
+            apply_preset("5 Processes × 3 Resources (Default)")
+        elif selected_radio == MODE_MIXED_LABEL:
+            apply_preset("Mixed-Instance: 3 Processes × 3 Resources")
+        st.rerun()
 
     st.markdown("---")
     st.subheader("Custom Dimensions")
@@ -599,6 +636,8 @@ with st.sidebar:
             st.session_state.anim_index = 0
             st.session_state.pending_request = None
             st.session_state.request_status = None
+            for j in range(new_m):
+                st.session_state[f"tot_in_{j}"] = int(new_tot[j])
             st.session_state.graph_zoom = 1.0
             st.session_state.graph_pan_x = 0
             st.session_state.graph_pan_y = 0
@@ -608,13 +647,21 @@ with st.sidebar:
     st.subheader("Total Capacity Vector (Total[j])")
     for j in range(st.session_state.m):
         allocated_j = sum(st.session_state.allocation[i][j] for i in range(st.session_state.n))
-        st.session_state.total[j] = st.number_input(
+        val = st.number_input(
             f"Total R{j} (Allocated: {allocated_j})",
             min_value=0,
             max_value=99,
             value=int(st.session_state.total[j]),
             key=f"tot_in_{j}"
         )
+        st.session_state.total[j] = val
+        if val < allocated_j:
+            st.markdown(
+                f'<div style="color: #DC2626; font-size: 11.5px; font-weight: 600; margin-top: -6px; margin-bottom: 8px;">'
+                f'⚠️ Total ({val}) < Allocated ({allocated_j})! Available will be negative.'
+                f'</div>',
+                unsafe_allow_html=True
+            )
 
 # ==============================================================================
 # VALIDATION AND C-STATE COMPUTATION
@@ -1197,11 +1244,32 @@ with col_ops:
             val = st.number_input(f"Req R{j}", min_value=0, max_value=99, value=0, key=f"req_field_{j}")
             req_vals.append(val)
 
+    # Identify which resources exceed Need or Available
+    exceeded_need_resources = [
+        f"R{j} (Requested: {req_vals[j]}, Remaining Need: {need_mat[req_p_idx][j]})"
+        for j in range(st.session_state.m)
+        if req_vals[j] > need_mat[req_p_idx][j]
+    ]
+    exceeded_avail_resources = [
+        f"R{j} (Requested: {req_vals[j]}, Available: {avail_vec[j]})"
+        for j in range(st.session_state.m)
+        if req_vals[j] > avail_vec[j]
+    ]
+
+    if any(req_vals) and exceeded_need_resources:
+        st.error(f"❌ Invalid Request: Request for {req_proc} exceeds remaining Need: {', '.join(exceeded_need_resources)}.")
+
     b_col1, b_col2 = st.columns([1, 1])
     with b_col1:
         if st.button("👁️ Preview Request Arrow", help="Visualize dotted request arrows on the graph without committing", disabled=bool(val_errors)):
             if all(v == 0 for v in req_vals):
                 st.warning("Please enter at least one non-zero request quantity to preview.")
+            elif exceeded_need_resources:
+                st.session_state.request_status = {
+                    "type": "error",
+                    "msg": f"❌ Request Preview Rejected for {req_proc}: Request {req_vals} exceeds remaining Need {need_mat[req_p_idx]}. Exceeded: {', '.join(exceeded_need_resources)}."
+                }
+                st.rerun()
             else:
                 st.session_state.pending_request = {"proc": req_p_idx, "values": list(req_vals)}
                 st.session_state.request_status = {
@@ -1214,98 +1282,97 @@ with col_ops:
         if st.button("Submit Request to C Core", type="primary", disabled=bool(val_errors)):
             if all(v == 0 for v in req_vals):
                 st.warning("Please enter at least one non-zero request quantity.")
+            elif any(req_vals[j] < 0 for j in range(st.session_state.m)):
+                st.session_state.request_status = {
+                    "type": "error",
+                    "msg": f"❌ Request Denied for {req_proc}: Request quantities cannot be negative."
+                }
+                st.rerun()
+            elif exceeded_need_resources:
+                err_msg = (
+                    f"❌ Request Denied for {req_proc}: Request {req_vals} exceeds maximum declared Need {need_mat[req_p_idx]}. "
+                    f"Specifically, request exceeds remaining need for: {', '.join(exceeded_need_resources)}."
+                )
+                st.session_state.request_status = {
+                    "type": "error",
+                    "msg": err_msg
+                }
+                st.rerun()
+            elif exceeded_avail_resources:
+                err_msg = (
+                    f"❌ Request Denied for {req_proc}: Insufficient Available resources in system (Requested: {req_vals}, Available: {avail_vec}). "
+                    f"Specifically: {', '.join(exceeded_avail_resources)}."
+                )
+                st.session_state.request_status = {
+                    "type": "error",
+                    "msg": err_msg
+                }
+                st.rerun()
             else:
-                st.session_state.pending_request = {"proc": req_p_idx, "values": list(req_vals)}
+                # In single-instance mode, check if granting the request creates a cycle
+                if mode == "SINGLE_INSTANCE":
+                    # Tentative allocation test
+                    tentative_alloc = [list(r) for r in st.session_state.allocation]
+                    tentative_req = [list(r) for r in need_mat]
+                    for j in range(st.session_state.m):
+                        tentative_alloc[req_p_idx][j] += req_vals[j]
+                        tentative_req[req_p_idx][j] = max(0, tentative_req[req_p_idx][j] - req_vals[j])
 
-                # Single-Instance specific validation: request cannot exceed 1
-                if mode == "SINGLE_INSTANCE" and any(req_vals[j] > 1 for j in range(st.session_state.m)):
-                    st.session_state.request_status = {
-                        "type": "error",
-                        "msg": "❌ Request Denied: In single-instance mode, request quantity cannot exceed 1."
-                    }
-                    st.rerun()
-
-                # Check Need
-                exceeds_need = any(req_vals[j] > need_mat[req_p_idx][j] for j in range(st.session_state.m))
-                exceeds_avail = any(req_vals[j] > avail_vec[j] for j in range(st.session_state.m))
-
-                if exceeds_need:
-                    st.session_state.request_status = {
-                        "type": "error",
-                        "msg": f"❌ Request Denied for {req_proc}: Request {req_vals} exceeds maximum declared Need {need_mat[req_p_idx]}."
-                    }
-                    st.rerun()
-                elif exceeds_avail:
-                    st.session_state.request_status = {
-                        "type": "error",
-                        "msg": f"❌ Request Denied for {req_proc}: Insufficient Available resources in system (Requested: {req_vals}, Available: {avail_vec})."
-                    }
-                    st.rerun()
-                else:
-                    # In single-instance mode, check if granting the request creates a cycle
-                    if mode == "SINGLE_INSTANCE":
-                        # Tentative allocation test
-                        tentative_alloc = [list(r) for r in st.session_state.allocation]
-                        tentative_req = [list(r) for r in need_mat]
-                        for j in range(st.session_state.m):
-                            tentative_alloc[req_p_idx][j] += req_vals[j]
-                            tentative_req[req_p_idx][j] = max(0, tentative_req[req_p_idx][j] - req_vals[j])
-
-                        tent_cycle, tent_path, _ = compute_rag_cycle(
-                            st.session_state.n, st.session_state.m, tentative_alloc, tentative_req
-                        )
-                        if tent_cycle:
-                            st.session_state.request_status = {
-                                "type": "error",
-                                "msg": f"❌ Request Denied for {req_proc}: Allocation creates directed cycle ({' → '.join(tent_path)}), resulting in deadlock! Rolled back."
-                            }
-                            st.rerun()
-                        else:
-                            for j in range(st.session_state.m):
-                                st.session_state.allocation[req_p_idx][j] += req_vals[j]
-                            st.session_state.pending_request = None
-                            st.session_state.request_status = {
-                                "type": "success",
-                                "msg": f"✅ Request Granted to {req_proc}! Single-instance RAG remains acyclic and safe."
-                            }
-                            st.rerun()
+                    tent_cycle, tent_path, _ = compute_rag_cycle(
+                        st.session_state.n, st.session_state.m, tentative_alloc, tentative_req
+                    )
+                    if tent_cycle:
+                        st.session_state.request_status = {
+                            "type": "error",
+                            "msg": f"❌ Request Denied for {req_proc}: Allocation creates directed cycle ({' → '.join(tent_path)}), resulting in deadlock! Rolled back."
+                        }
+                        st.rerun()
                     else:
-                        # Multi-instance / Mixed: Call C backend requestResources with safety check and rollback
-                        alloc_c = Matrix()
-                        max_c = Matrix()
-                        need_c = Matrix()
-                        avail_c = Vector()
-                        req_c = Vector()
-
-                        for i in range(st.session_state.n):
-                            for j in range(st.session_state.m):
-                                alloc_c[i][j] = int(st.session_state.allocation[i][j])
-                                max_c[i][j] = int(st.session_state.maximum[i][j])
-                                need_c[i][j] = int(need_mat[i][j])
-
                         for j in range(st.session_state.m):
-                            avail_c[j] = int(avail_vec[j])
-                            req_c[j] = int(req_vals[j])
+                            st.session_state.allocation[req_p_idx][j] += req_vals[j]
+                        st.session_state.pending_request = None
+                        st.session_state.request_status = {
+                            "type": "success",
+                            "msg": f"✅ Request Granted to {req_proc}! Single-instance RAG remains acyclic and safe."
+                        }
+                        st.rerun()
+                else:
+                    # Multi-instance / Mixed: Call C backend requestResources with safety check and rollback
+                    alloc_c = Matrix()
+                    max_c = Matrix()
+                    need_c = Matrix()
+                    avail_c = Vector()
+                    req_c = Vector()
 
-                        granted = bankers_c.requestResources(
-                            req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
-                        )
+                    for i in range(st.session_state.n):
+                        for j in range(st.session_state.m):
+                            alloc_c[i][j] = int(st.session_state.allocation[i][j])
+                            max_c[i][j] = int(st.session_state.maximum[i][j])
+                            need_c[i][j] = int(need_mat[i][j])
 
-                        if granted:
-                            for j in range(st.session_state.m):
-                                st.session_state.allocation[req_p_idx][j] += req_vals[j]
-                            st.session_state.pending_request = None
-                            st.session_state.request_status = {
-                                "type": "success",
-                                "msg": f"✅ Request Granted to {req_proc} by C Core! Allocation state updated, pending request edge removed."
-                            }
-                            st.rerun()
-                        else:
-                            st.session_state.request_status = {
-                                "type": "error",
-                                "msg": f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state (Deadlock Risk). C algorithm rolled back."
-                            }
-                            st.rerun()
+                    for j in range(st.session_state.m):
+                        avail_c[j] = int(avail_vec[j])
+                        req_c[j] = int(req_vals[j])
+
+                    granted = bankers_c.requestResources(
+                        req_p_idx, st.session_state.n, st.session_state.m, req_c, alloc_c, need_c, avail_c
+                    )
+
+                    if granted:
+                        for j in range(st.session_state.m):
+                            st.session_state.allocation[req_p_idx][j] += req_vals[j]
+                        st.session_state.pending_request = None
+                        st.session_state.request_status = {
+                            "type": "success",
+                            "msg": f"✅ Request Granted to {req_proc} by C Core! Allocation state updated, pending request edge removed."
+                        }
+                        st.rerun()
+                    else:
+                        st.session_state.request_status = {
+                            "type": "error",
+                            "msg": f"❌ Request Denied for {req_proc}: Allocation leads to an unsafe state (Deadlock Risk). C algorithm rolled back."
+                        }
+                        st.rerun()
 
     st.markdown("---")
 

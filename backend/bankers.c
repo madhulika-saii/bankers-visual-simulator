@@ -471,3 +471,48 @@ int init_preset_single_instance_safe(
     available[2] = 1;
     return 1;
 }
+
+int init_preset_mixed_instance(
+    int *n, int *m,
+    int total[MAX_R],
+    int allocation[MAX_P][MAX_R],
+    int maximum[MAX_P][MAX_R],
+    int need[MAX_P][MAX_R],
+    int available[MAX_R]
+) {
+    *n = 3;
+    *m = 3;
+    total[0] = 10;
+    total[1] = 5;
+    total[2] = 1;
+
+    for (int i = 0; i < MAX_P; i++) {
+        for (int j = 0; j < MAX_R; j++) {
+            allocation[i][j] = 0;
+            maximum[i][j] = 0;
+            need[i][j] = 0;
+        }
+    }
+
+    // P0: alloc=[3, 1, 0], max=[3, 2, 0] -> need=[0, 1, 0]
+    allocation[0][0] = 3; allocation[0][1] = 1; allocation[0][2] = 0;
+    maximum[0][0] = 3;    maximum[0][1] = 2;    maximum[0][2] = 0;
+    need[0][0] = 0;       need[0][1] = 1;       need[0][2] = 0;
+
+    // P1: alloc=[2, 1, 1], max=[3, 2, 1] -> need=[1, 1, 0]
+    allocation[1][0] = 2; allocation[1][1] = 1; allocation[1][2] = 1;
+    maximum[1][0] = 3;    maximum[1][1] = 2;    maximum[1][2] = 1;
+    need[1][0] = 1;       need[1][1] = 1;       need[1][2] = 0;
+
+    // P2: alloc=[2, 1, 0], max=[4, 2, 0] -> need=[2, 1, 0]
+    allocation[2][0] = 2; allocation[2][1] = 1; allocation[2][2] = 0;
+    maximum[2][0] = 4;    maximum[2][1] = 2;    maximum[2][2] = 0;
+    need[2][0] = 2;       need[2][1] = 1;       need[2][2] = 0;
+
+    // Total allocated: R0=7, R1=3, R2=1
+    // Available: R0=10-7=3, R1=5-3=2, R2=1-1=0
+    available[0] = 3;
+    available[1] = 2;
+    available[2] = 0;
+    return 1;
+}

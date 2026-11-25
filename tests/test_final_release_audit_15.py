@@ -336,9 +336,9 @@ class FinalReleaseAudit15Tests(unittest.TestCase):
         self.assertIn("Work and Finish", mode_b["reason"])
 
         # Case C: Mixed-Instance (some total = 1, some > 1)
-        mode_c = streamlit_app.determine_algorithm_mode([1, 5, 1])
+        mode_c = streamlit_app.determine_algorithm_mode([10, 5, 1])
         self.assertEqual(mode_c["mode"], "MIXED_INSTANCE")
-        self.assertIn("Banker's Algorithm (General Multi-Instance Mode)", mode_c["name"])
+        self.assertIn("General Banker's Safety Algorithm", mode_c["name"])
         self.assertIn("General Banker's Algorithm guarantees safety", mode_c["math_note"])
 
     def test_17_single_instance_rag_cycle_deadlock_detection(self):
@@ -363,6 +363,118 @@ class FinalReleaseAudit15Tests(unittest.TestCase):
         self.assertIn('stroke="#DC2626"', svg)
         self.assertIn('marker id="cycleArrow"', svg)
         self.assertIn('Deadlock Cycle', svg)
+
+    def test_18_mixed_instance_preset_capacities(self):
+        """18. Verify Mixed-Instance preset has exact capacities R0=10, R1=5, R2=1 and valid matrices"""
+        preset = self.PRESETS["Mixed-Instance: 3 Processes × 3 Resources"]
+        self.assertEqual(preset["processes"], 3)
+        self.assertEqual(preset["resources"], 3)
+        self.assertEqual(preset["total"], [10, 5, 1], "Total capacity must strictly be [10, 5, 1]")
+
+        alloc = preset["allocation"]
+        maximum = preset["maximum"]
+        n, m = 3, 3
+
+        # Allocation <= Maximum
+        for i in range(n):
+            for j in range(m):
+                self.assertLessEqual(alloc[i][j], maximum[i][j], f"Allocation at ({i},{j}) exceeds Maximum")
+
+        # Total >= Allocated (Available >= 0)
+        avail = [preset["total"][j] - sum(alloc[i][j] for i in range(n)) for j in range(m)]
+        for j in range(m):
+            self.assertGreaterEqual(avail[j], 0, f"Available for R{j} must be non-negative")
+        self.assertEqual(avail, [3, 2, 0])
+
+        # P0 Need must strictly be [0, 1, 0]
+        need_p0 = [maximum[0][j] - alloc[0][j] for j in range(m)]
+        self.assertEqual(need_p0, [0, 1, 0], "P0 Need must equal [0, 1, 0]")
+
+    def test_19_preset_and_radio_mode_synchronization(self):
+        """19. Verify synchronization between preset selection, instance mode radio, and capacities"""
+        # Single-instance presets map to Single-Instance radio label
+        single_preset = self.PRESETS["Single-Instance: Safe / No Cycle (3 Processes × 3 Resources)"]
+        self.assertEqual(streamlit_app.get_radio_label_for_total(single_preset["total"]), streamlit_app.MODE_SINGLE_LABEL)
+
+        # Multi-instance presets map to Multi-Instance radio label
+        multi_preset = self.PRESETS["5 Processes × 3 Resources (Default)"]
+        self.assertEqual(streamlit_app.get_radio_label_for_total(multi_preset["total"]), streamlit_app.MODE_MULTI_LABEL)
+
+        # Mixed-instance preset maps to Mixed-Instance radio label
+        mixed_preset = self.PRESETS["Mixed-Instance: 3 Processes × 3 Resources"]
+        self.assertEqual(streamlit_app.get_radio_label_for_total(mixed_preset["total"]), streamlit_app.MODE_MIXED_LABEL)
+
+        # Confirm algorithm determination matches
+        mode_mixed = streamlit_app.determine_algorithm_mode(mixed_preset["total"])
+        self.assertEqual(mode_mixed["mode"], "MIXED_INSTANCE")
+        self.assertIn("General Banker's Safety Algorithm", mode_mixed["name"])
+
+    def test_20_resource_capacity_validation_prevents_negative_available(self):
+        """20. Verify validator strictly rejects Total < Allocated to prevent negative Available vector"""
+        n, m = 3, 3
+        alloc = [[3, 1, 0], [2, 1, 1], [2, 1, 0]]
+        maximum = [[3, 2, 0], [3, 2, 1], [4, 2, 0]]
+        # Allocated sums: R0=7, R1=3, R2=1
+        # Set Total R0=6 (allocated is 7 -> negative available -1)
+        invalid_total = [6, 5, 1]
+        errors = streamlit_app.validate_system_configuration(n, m, invalid_total, alloc, maximum)
+        self.assertTrue(len(errors) > 0, "Validator must flag error when Total < Allocated")
+        self.assertTrue(any("Available would be negative" in e or "lower than currently allocated" in e or "exceed Total" in e for e in errors))
+
+    def test_21_request_validation_rejects_exceeding_need(self):
+        """21. Verify requests exceeding Need are strictly rejected (e.g. P0 Need=[0,1,0], Request=[1,0,0])"""
+        alloc_c = self.Matrix()
+        need_c = self.Matrix()
+        avail_c = self.Vector()
+        req_c = self.Vector()
+
+        preset = self.PRESETS["Mixed-Instance: 3 Processes × 3 Resources"]
+        n, m = preset["processes"], preset["resources"]
+        for i in range(n):
+            for j in range(m):
+                alloc_c[i][j] = preset["allocation"][i][j]
+                need_c[i][j] = preset["maximum"][i][j] - preset["allocation"][i][j]
+
+        for j in range(m):
+            used = sum(preset["allocation"][i][j] for i in range(n))
+            avail_c[j] = preset["total"][j] - used
+
+        # P0 Need is [0, 1, 0]. Request [1, 0, 0] has Request[0]=1 > Need[0]=0
+        req_c[0] = 1; req_c[1] = 0; req_c[2] = 0
+        granted = self.bankers_c.requestResources(0, n, m, req_c, alloc_c, need_c, avail_c)
+        self.assertEqual(granted, 0, "Request exceeding Need must be denied by C core")
+
+        # Request [0, 2, 0] has Request[1]=2 > Need[1]=1
+        req_c[0] = 0; req_c[1] = 2; req_c[2] = 0
+        granted2 = self.bankers_c.requestResources(0, n, m, req_c, alloc_c, need_c, avail_c)
+        self.assertEqual(granted2, 0, "Request exceeding Need must be denied by C core")
+
+    def test_22_existing_single_and_multi_instance_presets_integrity(self):
+        """22. Verify existing Single-Instance (safe & deadlock) and Multi-Instance presets remain fully operational"""
+        # 5x3 Default
+        p5 = self.PRESETS["5 Processes × 3 Resources (Default)"]
+        self.assertEqual(p5["total"], [10, 5, 7])
+        self.assertEqual(streamlit_app.determine_algorithm_mode(p5["total"])["mode"], "MULTI_INSTANCE")
+
+        # 3x2 Multi
+        p3 = self.PRESETS["3 Processes × 2 Resources"]
+        self.assertEqual(p3["total"], [6, 6])
+        self.assertEqual(streamlit_app.determine_algorithm_mode(p3["total"])["mode"], "MULTI_INSTANCE")
+
+        # 6x4 Multi
+        p6 = self.PRESETS["6 Processes × 4 Resources"]
+        self.assertEqual(p6["total"], [12, 9, 10, 8])
+        self.assertEqual(streamlit_app.determine_algorithm_mode(p6["total"])["mode"], "MULTI_INSTANCE")
+
+        # Single Deadlock
+        p_dl = self.PRESETS["Single-Instance: Deadlock Cycle (2 Processes × 2 Resources)"]
+        self.assertEqual(p_dl["total"], [1, 1])
+        self.assertEqual(streamlit_app.determine_algorithm_mode(p_dl["total"])["mode"], "SINGLE_INSTANCE")
+
+        # Single Safe
+        p_sf = self.PRESETS["Single-Instance: Safe / No Cycle (3 Processes × 3 Resources)"]
+        self.assertEqual(p_sf["total"], [1, 1, 1])
+        self.assertEqual(streamlit_app.determine_algorithm_mode(p_sf["total"])["mode"], "SINGLE_INSTANCE")
 
 if __name__ == "__main__":
     unittest.main()

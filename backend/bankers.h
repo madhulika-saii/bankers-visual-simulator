@@ -79,4 +79,13 @@ int init_preset_single_instance_safe(
     int available[MAX_R]
 );
 
+int init_preset_mixed_instance(
+    int *n, int *m,
+    int total[MAX_R],
+    int allocation[MAX_P][MAX_R],
+    int maximum[MAX_P][MAX_R],
+    int need[MAX_P][MAX_R],
+    int available[MAX_R]
+);
+
 #endif
